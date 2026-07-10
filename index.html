@@ -2,22 +2,26 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>Audio Visualizer</title>
 <style>
   :root {
-    --bg: #080b1a;
-    --panel: #10152b;
-    --panel-border: #1e2547;
+    --bg: #070a18;
+    --panel: rgba(18, 24, 48, 0.72);
+    --panel-solid: #10152b;
+    --panel-border: rgba(120, 140, 220, 0.14);
     --cyan: #00e5ff;
     --magenta: #ff2e93;
+    --amber: #ffb020;
     --text: #e8ecff;
-    --text-dim: #6b7399;
+    --text-dim: #7a83ad;
     --mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
     --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    --spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --ease: cubic-bezier(0.22, 1, 0.36, 1);
   }
 
-  * { margin: 0; padding: 0; box-sizing: border-box; }
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
   html, body {
     height: 100%;
@@ -27,27 +31,23 @@
     overflow: hidden;
   }
 
-  body {
-    display: flex;
-    flex-direction: column;
-  }
+  body { display: flex; flex-direction: column; }
 
-  /* ambient background glow */
   body::before {
     content: '';
     position: fixed;
     inset: 0;
     background:
-      radial-gradient(ellipse 800px 400px at 20% -10%, rgba(0,229,255,0.08), transparent),
-      radial-gradient(ellipse 800px 400px at 80% 110%, rgba(255,46,147,0.08), transparent);
+      radial-gradient(ellipse 900px 460px at 15% -10%, rgba(0,229,255,0.10), transparent),
+      radial-gradient(ellipse 900px 460px at 85% 110%, rgba(255,46,147,0.10), transparent);
     pointer-events: none;
     z-index: 0;
   }
 
   header {
     position: relative;
-    z-index: 1;
-    padding: 18px 24px 14px;
+    z-index: 2;
+    padding: 16px 22px 13px;
     display: flex;
     align-items: baseline;
     justify-content: space-between;
@@ -56,25 +56,50 @@
 
   .brand {
     font-family: var(--mono);
-    font-size: 13px;
+    font-size: 12.5px;
     letter-spacing: 0.24em;
     color: var(--text-dim);
     text-transform: uppercase;
   }
-
-  .brand span {
-    color: var(--cyan);
-  }
+  .brand span { color: var(--cyan); }
 
   .track-name {
     font-family: var(--mono);
-    font-size: 12px;
+    font-size: 11.5px;
     color: var(--text-dim);
-    max-width: 50%;
+    max-width: 46%;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
   }
+
+  .banner {
+    position: relative;
+    z-index: 2;
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 18px;
+    margin: 10px 16px 0;
+    background: rgba(255, 176, 32, 0.10);
+    border: 1px solid rgba(255, 176, 32, 0.30);
+    border-radius: 12px;
+    color: #ffd98a;
+    font-size: 12.5px;
+    transform: translateY(-8px);
+    opacity: 0;
+    transition: transform 0.5s var(--spring), opacity 0.4s var(--ease);
+  }
+  .banner.show { display: flex; transform: translateY(0); opacity: 1; }
+  .banner svg { width: 16px; height: 16px; fill: var(--amber); flex-shrink: 0; }
+  .banner .close {
+    margin-left: auto;
+    background: none; border: none; color: #ffd98a;
+    cursor: pointer; font-size: 17px; line-height: 1;
+    padding: 2px 4px; border-radius: 6px;
+    transition: background 0.2s;
+  }
+  .banner .close:hover { background: rgba(255,176,32,0.15); }
 
   main {
     flex: 1;
@@ -83,159 +108,172 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    padding: 0 24px;
+    padding: 8px 22px;
     min-height: 0;
   }
 
-  #canvasWrap {
-    width: 100%;
-    height: 100%;
-    max-width: 1100px;
-    position: relative;
-  }
-
-  canvas {
-    width: 100%;
-    height: 100%;
-    display: block;
-  }
+  #canvasWrap { width: 100%; height: 100%; max-width: 1120px; position: relative; }
+  canvas { width: 100%; height: 100%; display: block; }
 
   .idle-hint {
-    position: absolute;
-    top: 50%;
-    left: 50%;
+    position: absolute; top: 50%; left: 50%;
     transform: translate(-50%, -50%);
-    text-align: center;
-    pointer-events: none;
-    transition: opacity 0.4s ease;
+    text-align: center; pointer-events: none;
+    transition: opacity 0.5s var(--ease);
   }
-
   .idle-hint p {
     font-family: var(--mono);
-    font-size: 12px;
-    letter-spacing: 0.14em;
-    color: var(--text-dim);
-    text-transform: uppercase;
+    font-size: 12px; letter-spacing: 0.14em;
+    color: var(--text-dim); text-transform: uppercase;
   }
 
   footer {
     position: relative;
-    z-index: 1;
-    padding: 16px 24px 22px;
+    z-index: 2;
+    padding: 12px 22px 20px;
     border-top: 1px solid var(--panel-border);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
   }
 
+  .recent {
+    max-width: 1120px;
+    margin: 0 auto 12px;
+    display: none;
+  }
+  .recent.show { display: block; }
+  .recent-label {
+    font-family: var(--mono);
+    font-size: 10px; letter-spacing: 0.16em;
+    color: var(--text-dim); text-transform: uppercase;
+    margin-bottom: 7px;
+  }
+  .recent-row {
+    display: flex; gap: 8px;
+    overflow-x: auto; padding-bottom: 3px;
+    scrollbar-width: none;
+  }
+  .recent-row::-webkit-scrollbar { display: none; }
+
+  .chip {
+    flex-shrink: 0;
+    display: flex; align-items: center; gap: 8px;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 999px;
+    padding: 7px 13px 7px 11px;
+    cursor: pointer;
+    font-size: 12px;
+    color: var(--text);
+    max-width: 190px;
+    transition: transform 0.35s var(--spring), border-color 0.2s, background 0.2s;
+  }
+  .chip:hover { border-color: rgba(0,229,255,0.4); background: rgba(24,32,60,0.9); }
+  .chip:active { transform: scale(0.94); }
+  .chip.playing { border-color: var(--cyan); background: rgba(0,229,255,0.10); }
+  .chip .dot {
+    width: 7px; height: 7px; border-radius: 50%;
+    background: var(--text-dim); flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .chip.playing .dot { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  .chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .chip .del {
+    background: none; border: none; color: var(--text-dim);
+    cursor: pointer; font-size: 15px; line-height: 1;
+    padding: 0 1px; border-radius: 4px; flex-shrink: 0;
+    transition: color 0.2s;
+  }
+  .chip .del:hover { color: var(--magenta); }
+
   .controls {
-    max-width: 1100px;
-    margin: 0 auto;
-    display: flex;
-    align-items: center;
-    gap: 18px;
+    max-width: 1120px; margin: 0 auto;
+    display: flex; align-items: center; gap: 16px;
   }
 
   .btn {
     background: var(--panel);
     border: 1px solid var(--panel-border);
     color: var(--text);
-    border-radius: 10px;
+    border-radius: 12px;
     cursor: pointer;
-    transition: border-color 0.2s ease, background 0.2s ease, transform 0.1s ease;
     font-family: var(--sans);
+    transition: transform 0.35s var(--spring), border-color 0.2s, background 0.2s;
   }
-
-  .btn:hover { border-color: #333d6e; background: #141a36; }
-  .btn:active { transform: scale(0.96); }
+  .btn:hover { border-color: rgba(120,140,220,0.35); background: rgba(22,30,58,0.9); }
+  .btn:active { transform: scale(0.9); }
 
   #playBtn {
-    width: 46px;
-    height: 46px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    flex-shrink: 0;
-    border-radius: 50%;
-    border-color: var(--cyan);
-    background: linear-gradient(135deg, rgba(0,229,255,0.15), rgba(255,46,147,0.1));
+    width: 48px; height: 48px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; border-radius: 50%;
+    border-color: rgba(0,229,255,0.5);
+    background: linear-gradient(135deg, rgba(0,229,255,0.18), rgba(255,46,147,0.12));
   }
+  #playBtn:disabled { opacity: 0.4; cursor: default; }
+  #playBtn:disabled:active { transform: none; }
+  #playBtn svg { width: 17px; height: 17px; fill: var(--text); }
 
-  #playBtn svg { width: 16px; height: 16px; fill: var(--text); }
-
-  #uploadBtn {
-    padding: 11px 18px;
-    font-size: 13px;
-    font-weight: 500;
-    white-space: nowrap;
-  }
+  #uploadBtn { padding: 12px 18px; font-size: 13px; font-weight: 500; white-space: nowrap; }
 
   .volume-group {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    color: var(--text-dim);
-    flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px;
+    color: var(--text-dim); flex-shrink: 0;
   }
-
   .volume-group svg { width: 16px; height: 16px; fill: var(--text-dim); }
 
   input[type="range"] {
-    -webkit-appearance: none;
-    width: 90px;
-    height: 3px;
-    background: var(--panel-border);
-    border-radius: 2px;
-    outline: none;
+    -webkit-appearance: none; appearance: none;
+    width: 92px; height: 3px;
+    background: var(--panel-border); border-radius: 2px; outline: none;
   }
-
   input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none;
-    width: 12px;
-    height: 12px;
-    border-radius: 50%;
-    background: var(--cyan);
-    cursor: pointer;
-    box-shadow: 0 0 8px rgba(0,229,255,0.6);
+    -webkit-appearance: none; appearance: none;
+    width: 13px; height: 13px; border-radius: 50%;
+    background: var(--cyan); cursor: pointer;
+    box-shadow: 0 0 10px rgba(0,229,255,0.7);
+    transition: transform 0.2s var(--spring);
   }
+  input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.25); }
 
   .modes {
-    display: flex;
-    gap: 6px;
+    display: flex; gap: 5px;
     margin-left: auto;
     background: var(--panel);
     border: 1px solid var(--panel-border);
-    border-radius: 10px;
+    border-radius: 12px;
     padding: 4px;
-    flex-shrink: 0;
+    overflow-x: auto;
+    scrollbar-width: none;
+    max-width: 100%;
   }
+  .modes::-webkit-scrollbar { display: none; }
 
   .mode-btn {
-    background: transparent;
-    border: none;
+    background: transparent; border: none;
     color: var(--text-dim);
     font-family: var(--mono);
-    font-size: 11px;
-    letter-spacing: 0.08em;
+    font-size: 10.5px; letter-spacing: 0.06em;
     text-transform: uppercase;
-    padding: 8px 14px;
-    border-radius: 7px;
-    cursor: pointer;
-    transition: all 0.2s ease;
+    padding: 8px 13px; border-radius: 8px;
+    cursor: pointer; white-space: nowrap;
+    transition: transform 0.35s var(--spring), color 0.2s, background 0.3s;
   }
-
   .mode-btn.active {
     background: linear-gradient(135deg, var(--cyan), var(--magenta));
-    color: #060815;
-    font-weight: 700;
+    color: #060815; font-weight: 700;
+    transform: scale(1.04);
   }
-
   .mode-btn:not(.active):hover { color: var(--text); }
+  .mode-btn:active { transform: scale(0.92); }
 
   #fileInput { display: none; }
 
-  @media (max-width: 640px) {
+  @media (max-width: 720px) {
     .track-name { display: none; }
     .controls { gap: 10px; flex-wrap: wrap; }
-    .modes { order: 3; width: 100%; margin-left: 0; justify-content: space-between; }
-    .mode-btn { flex: 1; text-align: center; }
+    .modes { order: 3; width: 100%; margin-left: 0; }
+    .volume-group { order: 2; }
   }
 </style>
 </head>
@@ -246,16 +284,25 @@
   <div class="track-name" id="trackName">no track loaded</div>
 </header>
 
+<div class="banner" id="banner">
+  <svg viewBox="0 0 24 24"><path d="M1 21h22L12 2 1 21zm12-3h-2v-2h2v2zm0-4h-2v-4h2v4z"/></svg>
+  <span>Looks like private / incognito browsing. Your recently played list won't be saved after you close this tab.</span>
+  <button class="close" id="bannerClose" aria-label="Dismiss">&times;</button>
+</div>
+
 <main>
   <div id="canvasWrap">
     <canvas id="canvas"></canvas>
-    <div class="idle-hint" id="idleHint">
-      <p>upload a track to begin</p>
-    </div>
+    <div class="idle-hint" id="idleHint"><p>upload a track to begin</p></div>
   </div>
 </main>
 
 <footer>
+  <div class="recent" id="recent">
+    <div class="recent-label">Recently Played</div>
+    <div class="recent-row" id="recentRow"></div>
+  </div>
+
   <div class="controls">
     <button class="btn" id="playBtn" disabled>
       <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -270,10 +317,14 @@
       <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.8">
     </div>
 
-    <div class="modes">
+    <div class="modes" id="modes">
       <button class="mode-btn active" data-mode="bars">Bars</button>
+      <button class="mode-btn" data-mode="mirror">Mirror</button>
       <button class="mode-btn" data-mode="wave">Wave</button>
+      <button class="mode-btn" data-mode="area">Area</button>
       <button class="mode-btn" data-mode="radial">Radial</button>
+      <button class="mode-btn" data-mode="orb">Orb</button>
+      <button class="mode-btn" data-mode="particles">Particles</button>
     </div>
   </div>
 </footer>
@@ -282,6 +333,8 @@
 
 <script>
 (() => {
+  'use strict';
+
   const canvas = document.getElementById('canvas');
   const ctx = canvas.getContext('2d');
   const wrap = document.getElementById('canvasWrap');
@@ -295,86 +348,217 @@
   const trackName = document.getElementById('trackName');
   const idleHint = document.getElementById('idleHint');
   const modeBtns = document.querySelectorAll('.mode-btn');
+  const recentEl = document.getElementById('recent');
+  const recentRow = document.getElementById('recentRow');
+  const banner = document.getElementById('banner');
+  const bannerClose = document.getElementById('bannerClose');
 
   let mode = 'bars';
-  let audioCtx, analyser, source, dataArray, bufferLength;
-  let barHeights = [];
-  let isPlaying = false;
-  let hasTrack = false;
+  let audioCtx, analyser, source, freqData, timeData, bufferLength;
+  let isPlaying = false, hasTrack = false;
   let dpr = window.devicePixelRatio || 1;
-  let t = 0; // idle animation clock
+  let idleT = 0;
+  let currentUrl = null;
+  let currentName = null;
+  let privateMode = false;
+
+  const MAXB = 256;
+  const bars = new Float32Array(MAXB);
+  const peaks = new Float32Array(MAXB);
+  const peakVel = new Float32Array(MAXB);
+  const orbPts = new Float32Array(160);
+  let particles = [];
+  let bassEnv = 0;
 
   function resize() {
     dpr = window.devicePixelRatio || 1;
     const rect = wrap.getBoundingClientRect();
-    canvas.width = rect.width * dpr;
-    canvas.height = rect.height * dpr;
+    canvas.width = Math.max(1, rect.width * dpr);
+    canvas.height = Math.max(1, rect.height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   window.addEventListener('resize', resize);
   resize();
 
-  function setupAudioGraph() {
+  function size() {
+    const r = wrap.getBoundingClientRect();
+    return { w: r.width, h: r.height };
+  }
+
+  function setupGraph() {
     if (audioCtx) return;
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioCtx.createAnalyser();
-    analyser.fftSize = 512;
-    analyser.smoothingTimeConstant = 0.82;
+    analyser.fftSize = 2048;
+    analyser.smoothingTimeConstant = 0.85;
     bufferLength = analyser.frequencyBinCount;
-    dataArray = new Uint8Array(bufferLength);
-    barHeights = new Array(bufferLength).fill(0);
-
+    freqData = new Uint8Array(bufferLength);
+    timeData = new Uint8Array(bufferLength);
     source = audioCtx.createMediaElementSource(audio);
     source.connect(analyser);
     analyser.connect(audioCtx.destination);
   }
 
-  // ---- File handling ----
-  uploadBtn.addEventListener('click', () => fileInput.click());
+  function logSample(i, count) {
+    const minL = Math.log(2);
+    const maxL = Math.log(bufferLength);
+    const lo = Math.floor(Math.exp(minL + (maxL - minL) * (i / count)));
+    let hi = Math.floor(Math.exp(minL + (maxL - minL) * ((i + 1) / count)));
+    if (hi <= lo) hi = lo + 1;
+    let sum = 0, c = 0;
+    for (let b = lo; b < hi && b < bufferLength; b++) { sum += freqData[b]; c++; }
+    return c ? sum / c : 0;
+  }
+
+  function bass() {
+    let sum = 0;
+    for (let b = 1; b < 12; b++) sum += freqData[b];
+    return sum / 11 / 255;
+  }
+
+  let db = null;
+  function openDB() {
+    return new Promise((res, rej) => {
+      let req;
+      try { req = indexedDB.open('vizlab', 1); }
+      catch (e) { return rej(e); }
+      req.onupgradeneeded = () => {
+        const d = req.result;
+        if (!d.objectStoreNames.contains('tracks'))
+          d.createObjectStore('tracks', { keyPath: 'id' });
+      };
+      req.onsuccess = () => res(req.result);
+      req.onerror = () => rej(req.error);
+      req.onblocked = () => rej(new Error('blocked'));
+    });
+  }
+
+  async function saveTrack(name, blob) {
+    if (!db) return;
+    try {
+      const all = await getTracks();
+      const filtered = all.filter(t => t.name !== name);
+      const entry = { id: 'id-' + Date.now(), name, blob, date: Date.now() };
+      const keep = [entry, ...filtered].slice(0, 6);
+      const toDelete = [entry, ...filtered].slice(6);
+      const tx = db.transaction('tracks', 'readwrite');
+      const store = tx.objectStore('tracks');
+      keep.forEach(t => store.put(t));
+      toDelete.forEach(t => store.delete(t.id));
+      tx.oncomplete = () => renderRecent();
+    } catch (e) {}
+  }
+
+  function getTracks() {
+    return new Promise((res) => {
+      if (!db) return res([]);
+      try {
+        const tx = db.transaction('tracks', 'readonly');
+        const req = tx.objectStore('tracks').getAll();
+        req.onsuccess = () => res((req.result || []).sort((a, b) => b.date - a.date));
+        req.onerror = () => res([]);
+      } catch (e) { res([]); }
+    });
+  }
+
+  async function deleteTrack(id) {
+    if (!db) return;
+    try {
+      const tx = db.transaction('tracks', 'readwrite');
+      tx.objectStore('tracks').delete(id);
+      tx.oncomplete = () => renderRecent();
+    } catch (e) {}
+  }
+
+  async function renderRecent() {
+    const all = await getTracks();
+    recentRow.innerHTML = '';
+    if (!all.length) { recentEl.classList.remove('show'); return; }
+    recentEl.classList.add('show');
+    all.forEach(t => {
+      const chip = document.createElement('div');
+      chip.className = 'chip' + (t.name === currentName ? ' playing' : '');
+      chip.innerHTML = '<span class="dot"></span><span class="name"></span><button class="del" aria-label="Remove">&times;</button>';
+      chip.querySelector('.name').textContent = t.name;
+      chip.addEventListener('click', (e) => {
+        if (e.target.classList.contains('del')) return;
+        playBlob(t.name, t.blob);
+      });
+      chip.querySelector('.del').addEventListener('click', (e) => {
+        e.stopPropagation();
+        deleteTrack(t.id);
+      });
+      recentRow.appendChild(chip);
+    });
+  }
+
+  async function detectPrivate() {
+    let suspect = false;
+    try {
+      if (navigator.storage && navigator.storage.estimate) {
+        const est = await navigator.storage.estimate();
+        if (est.quota && est.quota < 120 * 1024 * 1024) suspect = true;
+      }
+    } catch (e) {}
+    try { db = await openDB(); }
+    catch (e) { suspect = true; }
+    try {
+      localStorage.setItem('__t', '1');
+      localStorage.removeItem('__t');
+    } catch (e) { suspect = true; }
+    return suspect;
+  }
+
+  function loadUrl(url, name) {
+    if (currentUrl) URL.revokeObjectURL(currentUrl);
+    currentUrl = url;
+    currentName = name;
+    audio.src = url;
+    trackName.textContent = name;
+    hasTrack = true;
+    idleHint.style.opacity = '0';
+    playBtn.disabled = false;
+    setupGraph();
+    audio.play().then(() => {
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }).catch(() => {});
+    renderRecent();
+  }
 
   fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     const url = URL.createObjectURL(file);
-    audio.src = url;
-    trackName.textContent = file.name;
-    hasTrack = true;
-    idleHint.style.opacity = '0';
-    playBtn.disabled = false;
-    setupAudioGraph();
-    audio.play().then(() => {
-      isPlaying = true;
-      updatePlayIcon();
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-    }).catch(() => {});
+    loadUrl(url, file.name);
+    saveTrack(file.name, file);
   });
 
-  // ---- Playback controls ----
+  function playBlob(name, blob) {
+    const url = URL.createObjectURL(blob);
+    loadUrl(url, name);
+    saveTrack(name, blob);
+  }
+
+  uploadBtn.addEventListener('click', () => fileInput.click());
+
   playBtn.addEventListener('click', () => {
     if (!hasTrack) return;
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      audio.play();
-    }
+    isPlaying ? audio.pause() : audio.play();
   });
 
-  audio.addEventListener('play', () => { isPlaying = true; updatePlayIcon(); });
-  audio.addEventListener('pause', () => { isPlaying = false; updatePlayIcon(); });
-  audio.addEventListener('ended', () => { isPlaying = false; updatePlayIcon(); });
+  audio.addEventListener('play', () => { isPlaying = true; updateIcon(); });
+  audio.addEventListener('pause', () => { isPlaying = false; updateIcon(); });
+  audio.addEventListener('ended', () => { isPlaying = false; updateIcon(); });
 
-  function updatePlayIcon() {
+  function updateIcon() {
     playIcon.style.display = isPlaying ? 'none' : 'block';
     pauseIcon.style.display = isPlaying ? 'block' : 'none';
   }
 
-  volumeSlider.addEventListener('input', (e) => {
-    audio.volume = parseFloat(e.target.value);
-  });
+  volumeSlider.addEventListener('input', (e) => { audio.volume = parseFloat(e.target.value); });
   audio.volume = 0.8;
 
-  // ---- Mode switching ----
   modeBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       modeBtns.forEach(b => b.classList.remove('active'));
@@ -383,146 +567,199 @@
     });
   });
 
-  // ---- Drawing helpers ----
-  function getSize() {
-    const rect = wrap.getBoundingClientRect();
-    return { w: rect.width, h: rect.height };
+  bannerClose.addEventListener('click', () => banner.classList.remove('show'));
+
+  function lerpColor(a, b, t) {
+    return 'rgb(' + Math.round(a[0]+(b[0]-a[0])*t) + ',' + Math.round(a[1]+(b[1]-a[1])*t) + ',' + Math.round(a[2]+(b[2]-a[2])*t) + ')';
+  }
+  const CY = [0, 229, 255], MG = [255, 46, 147];
+
+  function vGrad(h) {
+    const g = ctx.createLinearGradient(0, h, 0, 0);
+    g.addColorStop(0, '#00e5ff');
+    g.addColorStop(1, '#ff2e93');
+    return g;
+  }
+
+  function roundTop(x, y, w, h, r) {
+    r = Math.min(r, w / 2, h);
+    ctx.beginPath();
+    ctx.moveTo(x, y + h);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.lineTo(x + w - r, y);
+    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h);
+    ctx.closePath();
   }
 
   function drawBars() {
-    const { w, h } = getSize();
+    const s = size(), w = s.w, h = s.h;
     ctx.clearRect(0, 0, w, h);
-
-    analyser.getByteFrequencyData(dataArray);
-
-    const barCount = 64;
-    const step = Math.floor(bufferLength / barCount);
-    const gap = 3;
-    const barWidth = (w - gap * (barCount - 1)) / barCount;
-
-    for (let i = 0; i < barCount; i++) {
-      let sum = 0;
-      for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
-      const avg = sum / step;
-      const targetH = (avg / 255) * h * 0.85;
-
-      barHeights[i] = barHeights[i] * 0.72 + targetH * 0.28;
-      const bh = Math.max(2, barHeights[i]);
-
-      const x = i * (barWidth + gap);
-      const y = h - bh;
-
-      const grad = ctx.createLinearGradient(0, h, 0, 0);
-      grad.addColorStop(0, '#00e5ff');
-      grad.addColorStop(1, '#ff2e93');
-      ctx.fillStyle = grad;
-      ctx.shadowColor = 'rgba(0,229,255,0.35)';
-      ctx.shadowBlur = 12;
-      roundRectTop(ctx, x, y, barWidth, bh, 3);
+    analyser.getByteFrequencyData(freqData);
+    const count = 64, gap = 3;
+    const bw = (w - gap * (count - 1)) / count;
+    ctx.fillStyle = vGrad(h);
+    ctx.shadowColor = 'rgba(0,229,255,0.30)';
+    ctx.shadowBlur = 14;
+    for (let i = 0; i < count; i++) {
+      const target = (logSample(i, count) / 255) * h * 0.9;
+      bars[i] += (target - bars[i]) * (target > bars[i] ? 0.5 : 0.12);
+      const bh = Math.max(2, bars[i]);
+      const x = i * (bw + gap);
+      roundTop(x, h - bh, bw, bh, 3);
       ctx.fill();
+      if (bh > peaks[i]) { peaks[i] = bh; peakVel[i] = 0; }
+      else { peakVel[i] += 0.45; peaks[i] -= peakVel[i]; }
+      if (peaks[i] < 2) peaks[i] = 2;
+    }
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = 'rgba(255,255,255,0.85)';
+    for (let i = 0; i < count; i++) {
+      const x = i * (bw + gap);
+      ctx.fillRect(x, h - peaks[i] - 3, bw, 2);
+    }
+  }
+
+  function drawMirror() {
+    const s = size(), w = s.w, h = s.h;
+    ctx.clearRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    const mid = h / 2;
+    const count = 72, gap = 2;
+    const bw = (w - gap * (count - 1)) / count;
+    ctx.shadowColor = 'rgba(255,46,147,0.28)';
+    ctx.shadowBlur = 14;
+    for (let i = 0; i < count; i++) {
+      const target = (logSample(i, count) / 255) * mid * 0.92;
+      bars[i] += (target - bars[i]) * (target > bars[i] ? 0.5 : 0.12);
+      const bh = Math.max(1.5, bars[i]);
+      const x = i * (bw + gap);
+      const t = i / count;
+      const g = ctx.createLinearGradient(0, mid - bh, 0, mid + bh);
+      g.addColorStop(0, lerpColor(CY, MG, t));
+      g.addColorStop(1, lerpColor(MG, CY, t));
+      ctx.fillStyle = g;
+      roundTop(x, mid - bh, bw, bh, 2);
+      ctx.fill();
+      ctx.save();
+      ctx.globalAlpha = 0.55;
+      ctx.beginPath();
+      ctx.moveTo(x, mid);
+      ctx.lineTo(x, mid + bh - 2);
+      ctx.quadraticCurveTo(x, mid + bh, x + 2, mid + bh);
+      ctx.lineTo(x + bw - 2, mid + bh);
+      ctx.quadraticCurveTo(x + bw, mid + bh, x + bw, mid + bh - 2);
+      ctx.lineTo(x + bw, mid);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
     }
     ctx.shadowBlur = 0;
   }
 
-  function roundRectTop(c, x, y, w, h, r) {
-    c.beginPath();
-    c.moveTo(x, y + h);
-    c.lineTo(x, y + r);
-    c.quadraticCurveTo(x, y, x + r, y);
-    c.lineTo(x + w - r, y);
-    c.quadraticCurveTo(x + w, y, x + w, y + r);
-    c.lineTo(x + w, y + h);
-    c.closePath();
+  function drawWave() {
+    const s = size(), w = s.w, h = s.h;
+    ctx.clearRect(0, 0, w, h);
+    analyser.getByteTimeDomainData(timeData);
+    const line = (color, glow, top, lw) => {
+      ctx.lineWidth = lw;
+      ctx.strokeStyle = color;
+      ctx.shadowColor = glow;
+      ctx.shadowBlur = 14;
+      ctx.beginPath();
+      const slice = w / bufferLength;
+      let x = 0;
+      for (let i = 0; i < bufferLength; i++) {
+        const v = timeData[i] / 128.0;
+        const y = top ? (v * h) / 2 : h - (v * h) / 2;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        x += slice;
+      }
+      ctx.stroke();
+    };
+    line('#00e5ff', 'rgba(0,229,255,0.5)', true, 2.6);
+    ctx.globalAlpha = 0.5;
+    line('#ff2e93', 'rgba(255,46,147,0.4)', false, 1.6);
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
   }
 
-  function drawWave() {
-    const { w, h } = getSize();
+  function drawArea() {
+    const s = size(), w = s.w, h = s.h;
     ctx.clearRect(0, 0, w, h);
-    analyser.getByteTimeDomainData(dataArray);
-
-    ctx.lineWidth = 2.5;
-    ctx.strokeStyle = '#00e5ff';
-    ctx.shadowColor = 'rgba(0,229,255,0.5)';
-    ctx.shadowBlur = 14;
-    ctx.beginPath();
-
-    const sliceWidth = w / bufferLength;
-    let x = 0;
-    for (let i = 0; i < bufferLength; i++) {
-      const v = dataArray[i] / 128.0;
-      const y = (v * h) / 2;
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      x += sliceWidth;
+    analyser.getByteFrequencyData(freqData);
+    const count = 96;
+    const pts = [];
+    for (let i = 0; i < count; i++) {
+      const target = (logSample(i, count) / 255) * h * 0.85;
+      bars[i] += (target - bars[i]) * (target > bars[i] ? 0.4 : 0.14);
+      pts.push({ x: (i / (count - 1)) * w, y: h - Math.max(2, bars[i]) });
     }
-    ctx.stroke();
-
-    // mirrored magenta echo, offset + faded
-    ctx.lineWidth = 1.5;
-    ctx.strokeStyle = 'rgba(255,46,147,0.5)';
-    ctx.shadowColor = 'rgba(255,46,147,0.4)';
-    ctx.shadowBlur = 10;
     ctx.beginPath();
-    x = 0;
-    for (let i = 0; i < bufferLength; i++) {
-      const v = dataArray[i] / 128.0;
-      const y = h - (v * h) / 2;
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      x += sliceWidth;
+    ctx.moveTo(0, h);
+    ctx.lineTo(pts[0].x, pts[0].y);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const xc = (pts[i].x + pts[i + 1].x) / 2;
+      const yc = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
     }
+    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
+    ctx.lineTo(w, h);
+    ctx.closePath();
+    const fill = ctx.createLinearGradient(0, 0, 0, h);
+    fill.addColorStop(0, 'rgba(0,229,255,0.55)');
+    fill.addColorStop(0.5, 'rgba(120,80,220,0.25)');
+    fill.addColorStop(1, 'rgba(255,46,147,0.05)');
+    ctx.fillStyle = fill;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    for (let i = 0; i < pts.length - 1; i++) {
+      const xc = (pts[i].x + pts[i + 1].x) / 2;
+      const yc = (pts[i].y + pts[i + 1].y) / 2;
+      ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+    }
+    ctx.strokeStyle = '#7fefff';
+    ctx.lineWidth = 2;
+    ctx.shadowColor = 'rgba(0,229,255,0.6)';
+    ctx.shadowBlur = 16;
     ctx.stroke();
     ctx.shadowBlur = 0;
   }
 
   function drawRadial() {
-    const { w, h } = getSize();
+    const s = size(), w = s.w, h = s.h;
     ctx.clearRect(0, 0, w, h);
-    analyser.getByteFrequencyData(dataArray);
-
+    analyser.getByteFrequencyData(freqData);
     const cx = w / 2, cy = h / 2;
     const baseR = Math.min(w, h) * 0.16;
-    const barCount = 96;
-    const step = Math.floor(bufferLength / barCount);
-
-    // core glow
-    const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR);
-    coreGrad.addColorStop(0, 'rgba(0,229,255,0.25)');
-    coreGrad.addColorStop(1, 'rgba(0,229,255,0)');
-    ctx.fillStyle = coreGrad;
+    const count = 100;
+    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 1.4);
+    core.addColorStop(0, 'rgba(0,229,255,0.28)');
+    core.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = core;
     ctx.beginPath();
-    ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+    ctx.arc(cx, cy, baseR * 1.4, 0, Math.PI * 2);
     ctx.fill();
-
-    for (let i = 0; i < barCount; i++) {
-      let sum = 0;
-      for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
-      const avg = sum / step;
-      const targetLen = (avg / 255) * Math.min(w, h) * 0.32;
-
-      barHeights[i] = barHeights[i] * 0.7 + targetLen * 0.3;
-      const len = Math.max(2, barHeights[i]);
-
-      const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
-      const x1 = cx + Math.cos(angle) * baseR;
-      const y1 = cy + Math.sin(angle) * baseR;
-      const x2 = cx + Math.cos(angle) * (baseR + len);
-      const y2 = cy + Math.sin(angle) * (baseR + len);
-
-      const t = i / barCount;
-      ctx.strokeStyle = t < 0.5
-        ? lerpColor('#00e5ff', '#ff2e93', t * 2)
-        : lerpColor('#ff2e93', '#00e5ff', (t - 0.5) * 2);
+    ctx.lineCap = 'round';
+    for (let i = 0; i < count; i++) {
+      const target = (logSample(i, count) / 255) * Math.min(w, h) * 0.34;
+      bars[i] += (target - bars[i]) * (target > bars[i] ? 0.45 : 0.14);
+      const len = Math.max(2, bars[i]);
+      const ang = (i / count) * Math.PI * 2 - Math.PI / 2;
+      const c = Math.cos(ang), sn = Math.sin(ang);
+      const t = i / count;
+      ctx.strokeStyle = t < 0.5 ? lerpColor(CY, MG, t * 2) : lerpColor(MG, CY, (t - 0.5) * 2);
       ctx.lineWidth = 3;
-      ctx.lineCap = 'round';
       ctx.shadowColor = 'rgba(0,229,255,0.3)';
       ctx.shadowBlur = 8;
       ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
+      ctx.moveTo(cx + c * baseR, cy + sn * baseR);
+      ctx.lineTo(cx + c * (baseR + len), cy + sn * (baseR + len));
       ctx.stroke();
     }
     ctx.shadowBlur = 0;
-
-    // thin outline ring
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 1;
     ctx.beginPath();
@@ -530,51 +767,134 @@
     ctx.stroke();
   }
 
-  function lerpColor(a, b, amt) {
-    const ah = parseInt(a.slice(1), 16), bh = parseInt(b.slice(1), 16);
-    const ar = (ah >> 16) & 255, ag = (ah >> 8) & 255, ab = ah & 255;
-    const br = (bh >> 16) & 255, bg = (bh >> 8) & 255, bb = bh & 255;
-    const rr = Math.round(ar + (br - ar) * amt);
-    const rg = Math.round(ag + (bg - ag) * amt);
-    const rb = Math.round(ab + (bb - ab) * amt);
-    return `rgb(${rr},${rg},${rb})`;
+  function drawOrb() {
+    const s = size(), w = s.w, h = s.h;
+    ctx.clearRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    const cx = w / 2, cy = h / 2;
+    const b = bass();
+    bassEnv += (b - bassEnv) * 0.18;
+    const baseR = Math.min(w, h) * (0.19 + bassEnv * 0.09);
+    const N = orbPts.length;
+    for (let i = 0; i < N; i++) {
+      const idx = Math.floor((i / N) * 64) + 2;
+      const target = (freqData[idx] / 255) * baseR * 0.75;
+      orbPts[i] += (target - orbPts[i]) * 0.22;
+    }
+    const glow = ctx.createRadialGradient(cx, cy, baseR * 0.3, cx, cy, baseR * 2);
+    glow.addColorStop(0, 'rgba(120,80,220,0.30)');
+    glow.addColorStop(1, 'rgba(120,80,220,0)');
+    ctx.fillStyle = glow;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR * 2, 0, Math.PI * 2);
+    ctx.fill();
+    const pts = [];
+    for (let i = 0; i < N; i++) {
+      const ang = (i / N) * Math.PI * 2;
+      const r = baseR + orbPts[i];
+      pts.push([cx + Math.cos(ang) * r, cy + Math.sin(ang) * r]);
+    }
+    ctx.beginPath();
+    ctx.moveTo((pts[0][0] + pts[N - 1][0]) / 2, (pts[0][1] + pts[N - 1][1]) / 2);
+    for (let i = 0; i < N; i++) {
+      const cur = pts[i], nxt = pts[(i + 1) % N];
+      ctx.quadraticCurveTo(cur[0], cur[1], (cur[0] + nxt[0]) / 2, (cur[1] + nxt[1]) / 2);
+    }
+    ctx.closePath();
+    const fill = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 1.5);
+    fill.addColorStop(0, 'rgba(0,229,255,0.9)');
+    fill.addColorStop(0.6, 'rgba(120,80,220,0.7)');
+    fill.addColorStop(1, 'rgba(255,46,147,0.6)');
+    ctx.fillStyle = fill;
+    ctx.shadowColor = 'rgba(0,229,255,0.5)';
+    ctx.shadowBlur = 30;
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.arc(cx - baseR * 0.2, cy - baseR * 0.2, baseR * 0.35, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.18)';
+    ctx.fill();
   }
 
-  // ---- Idle ambient animation (no track loaded / paused) ----
+  function drawParticles() {
+    const s = size(), w = s.w, h = s.h;
+    ctx.fillStyle = 'rgba(7,10,24,0.25)';
+    ctx.fillRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    const cx = w / 2, cy = h / 2;
+    const b = bass();
+    bassEnv += (b - bassEnv) * 0.25;
+    if (bassEnv > 0.35 && particles.length < 220) {
+      const n = Math.floor(bassEnv * 8);
+      for (let k = 0; k < n; k++) {
+        const ang = Math.random() * Math.PI * 2;
+        const spd = 1 + bassEnv * 5 + Math.random() * 2;
+        particles.push({
+          x: cx, y: cy,
+          vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
+          life: 1, t: Math.random(),
+          size: 1.5 + Math.random() * 2.5
+        });
+      }
+    }
+    for (let i = particles.length - 1; i >= 0; i--) {
+      const p = particles[i];
+      p.x += p.vx; p.y += p.vy;
+      p.vx *= 0.97; p.vy *= 0.97;
+      p.life -= 0.012;
+      if (p.life <= 0) { particles.splice(i, 1); continue; }
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.fillStyle = p.t < 0.5 ? '#00e5ff' : '#ff2e93';
+      ctx.shadowColor = ctx.fillStyle;
+      ctx.shadowBlur = 10;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+    ctx.shadowBlur = 0;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 6 + bassEnv * 24, 0, Math.PI * 2);
+    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 6 + bassEnv * 24);
+    g.addColorStop(0, 'rgba(255,255,255,0.9)');
+    g.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = g;
+    ctx.fill();
+  }
+
   function drawIdle() {
-    const { w, h } = getSize();
+    const s = size(), w = s.w, h = s.h;
     ctx.clearRect(0, 0, w, h);
-    t += 0.015;
-
-    const barCount = 64;
-    const gap = 3;
-    const barWidth = (w - gap * (barCount - 1)) / barCount;
-
-    for (let i = 0; i < barCount; i++) {
-      const wobble = Math.sin(t * 2 + i * 0.35) * 0.5 + 0.5;
-      const bh = 4 + wobble * h * 0.06;
-      const x = i * (barWidth + gap);
-      const y = h - bh;
-
-      ctx.fillStyle = 'rgba(107, 115, 153, 0.35)';
-      roundRectTop(ctx, x, y, barWidth, bh, 3);
+    idleT += 0.015;
+    const count = 64, gap = 3;
+    const bw = (w - gap * (count - 1)) / count;
+    ctx.fillStyle = 'rgba(122,131,173,0.30)';
+    for (let i = 0; i < count; i++) {
+      const wob = Math.sin(idleT * 2 + i * 0.35) * 0.5 + 0.5;
+      const bh = 4 + wob * h * 0.06;
+      roundTop(i * (bw + gap), h - bh, bw, bh, 3);
       ctx.fill();
     }
   }
 
-  // ---- Main loop ----
+  const dispatch = {
+    bars: drawBars, mirror: drawMirror, wave: drawWave,
+    area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles
+  };
+
   function tick() {
     requestAnimationFrame(tick);
-
-    if (hasTrack && analyser) {
-      if (mode === 'bars') drawBars();
-      else if (mode === 'wave') drawWave();
-      else if (mode === 'radial') drawRadial();
-    } else {
-      drawIdle();
-    }
+    if (hasTrack && analyser) (dispatch[mode] || drawBars)();
+    else drawIdle();
   }
   tick();
+
+  (async () => {
+    privateMode = await detectPrivate();
+    if (privateMode) banner.classList.add('show');
+    if (db) renderRecent();
+  })();
+
 })();
 </script>
 
