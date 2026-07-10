@@ -6,9 +6,8 @@
 <title>Audio Visualizer</title>
 <style>
   :root {
-    --bg: #070a18;
+    --bg: #060812;
     --panel: rgba(18, 24, 48, 0.72);
-    --panel-solid: #10152b;
     --panel-border: rgba(120, 140, 220, 0.14);
     --cyan: #00e5ff;
     --magenta: #ff2e93;
@@ -23,247 +22,201 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-  html, body {
-    height: 100%;
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--sans);
-    overflow: hidden;
-  }
-
+  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); overflow: hidden; }
   body { display: flex; flex-direction: column; }
 
   body::before {
     content: '';
-    position: fixed;
-    inset: 0;
+    position: fixed; inset: 0;
     background:
       radial-gradient(ellipse 900px 460px at 15% -10%, rgba(0,229,255,0.10), transparent),
       radial-gradient(ellipse 900px 460px at 85% 110%, rgba(255,46,147,0.10), transparent);
-    pointer-events: none;
-    z-index: 0;
+    pointer-events: none; z-index: 0;
   }
 
+  @keyframes riseIn { from { opacity: 0; transform: translateY(14px); } to { opacity: 1; transform: translateY(0); } }
+  @keyframes shimmer { to { background-position: 200% center; } }
+  @keyframes eqBar { 0%,100% { transform: scaleY(0.3); } 50% { transform: scaleY(1); } }
+  @keyframes ringPulse { 0% { box-shadow: 0 0 0 0 rgba(0,229,255,0.5); } 100% { box-shadow: 0 0 0 14px rgba(0,229,255,0); } }
+
   header {
-    position: relative;
-    z-index: 2;
+    position: relative; z-index: 2;
     padding: 16px 22px 13px;
-    display: flex;
-    align-items: baseline;
-    justify-content: space-between;
+    display: flex; align-items: baseline; justify-content: space-between;
     border-bottom: 1px solid var(--panel-border);
+    animation: riseIn 0.7s var(--ease) both;
   }
 
   .brand {
-    font-family: var(--mono);
-    font-size: 12.5px;
-    letter-spacing: 0.24em;
-    color: var(--text-dim);
+    font-family: var(--mono); font-size: 12.5px; letter-spacing: 0.24em;
     text-transform: uppercase;
+    background: linear-gradient(90deg, var(--text-dim) 0%, var(--cyan) 25%, var(--text-dim) 50%, var(--magenta) 75%, var(--text-dim) 100%);
+    background-size: 200% auto;
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent; color: transparent;
+    animation: shimmer 7s linear infinite;
   }
-  .brand span { color: var(--cyan); }
 
   .track-name {
-    font-family: var(--mono);
-    font-size: 11.5px;
-    color: var(--text-dim);
-    max-width: 46%;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
+    font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
+    max-width: 46%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
 
   .banner {
-    position: relative;
-    z-index: 2;
-    display: none;
-    align-items: center;
-    gap: 10px;
-    padding: 10px 18px;
-    margin: 10px 16px 0;
+    position: relative; z-index: 2; display: none;
+    align-items: center; gap: 10px;
+    padding: 10px 18px; margin: 10px 16px 0;
     background: rgba(255, 176, 32, 0.10);
     border: 1px solid rgba(255, 176, 32, 0.30);
-    border-radius: 12px;
-    color: #ffd98a;
-    font-size: 12.5px;
-    transform: translateY(-8px);
-    opacity: 0;
+    border-radius: 12px; color: #ffd98a; font-size: 12.5px;
+    transform: translateY(-8px); opacity: 0;
     transition: transform 0.5s var(--spring), opacity 0.4s var(--ease);
   }
   .banner.show { display: flex; transform: translateY(0); opacity: 1; }
   .banner svg { width: 16px; height: 16px; fill: var(--amber); flex-shrink: 0; }
   .banner .close {
-    margin-left: auto;
-    background: none; border: none; color: #ffd98a;
-    cursor: pointer; font-size: 17px; line-height: 1;
-    padding: 2px 4px; border-radius: 6px;
-    transition: background 0.2s;
+    margin-left: auto; background: none; border: none; color: #ffd98a;
+    cursor: pointer; font-size: 17px; line-height: 1; padding: 2px 4px;
+    border-radius: 6px; transition: background 0.2s;
   }
   .banner .close:hover { background: rgba(255,176,32,0.15); }
 
   main {
-    flex: 1;
-    position: relative;
-    z-index: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    padding: 8px 22px;
-    min-height: 0;
+    flex: 1; position: relative; z-index: 1;
+    display: flex; align-items: center; justify-content: center;
+    padding: 8px 22px; min-height: 0;
   }
-
   #canvasWrap { width: 100%; height: 100%; max-width: 1120px; position: relative; }
   canvas { width: 100%; height: 100%; display: block; }
 
   .idle-hint {
-    position: absolute; top: 50%; left: 50%;
-    transform: translate(-50%, -50%);
-    text-align: center; pointer-events: none;
-    transition: opacity 0.5s var(--ease);
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    text-align: center; pointer-events: none; transition: opacity 0.5s var(--ease);
   }
   .idle-hint p {
-    font-family: var(--mono);
-    font-size: 12px; letter-spacing: 0.14em;
+    font-family: var(--mono); font-size: 12px; letter-spacing: 0.14em;
     color: var(--text-dim); text-transform: uppercase;
   }
 
   footer {
-    position: relative;
-    z-index: 2;
+    position: relative; z-index: 2;
     padding: 12px 22px 20px;
     border-top: 1px solid var(--panel-border);
-    backdrop-filter: blur(12px);
-    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    animation: riseIn 0.7s var(--ease) 0.1s both;
   }
 
-  .recent {
-    max-width: 1120px;
-    margin: 0 auto 12px;
-    display: none;
-  }
+  .recent { max-width: 1120px; margin: 0 auto 12px; display: none; }
   .recent.show { display: block; }
   .recent-label {
-    font-family: var(--mono);
-    font-size: 10px; letter-spacing: 0.16em;
-    color: var(--text-dim); text-transform: uppercase;
-    margin-bottom: 7px;
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em;
+    color: var(--text-dim); text-transform: uppercase; margin-bottom: 7px;
   }
-  .recent-row {
-    display: flex; gap: 8px;
-    overflow-x: auto; padding-bottom: 3px;
-    scrollbar-width: none;
-  }
+  .recent-row { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 3px; scrollbar-width: none; }
   .recent-row::-webkit-scrollbar { display: none; }
 
   .chip {
-    flex-shrink: 0;
-    display: flex; align-items: center; gap: 8px;
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 999px;
-    padding: 7px 13px 7px 11px;
-    cursor: pointer;
-    font-size: 12px;
-    color: var(--text);
-    max-width: 190px;
+    flex-shrink: 0; display: flex; align-items: center; gap: 8px;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 999px; padding: 7px 13px 7px 11px;
+    cursor: pointer; font-size: 12px; color: var(--text); max-width: 190px;
     transition: transform 0.35s var(--spring), border-color 0.2s, background 0.2s;
+    animation: riseIn 0.5s var(--ease) both;
   }
   .chip:hover { border-color: rgba(0,229,255,0.4); background: rgba(24,32,60,0.9); }
   .chip:active { transform: scale(0.94); }
   .chip.playing { border-color: var(--cyan); background: rgba(0,229,255,0.10); }
-  .chip .dot {
-    width: 7px; height: 7px; border-radius: 50%;
-    background: var(--text-dim); flex-shrink: 0;
-    transition: background 0.3s;
+
+  .chip .glyph { display: flex; align-items: center; justify-content: center; width: 10px; height: 12px; flex-shrink: 0; }
+  .chip .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--text-dim); }
+  .chip.playing .glyph { gap: 1.5px; }
+  .chip.playing .dot { display: none; }
+  .chip.playing .glyph::before,
+  .chip.playing .glyph::after,
+  .chip.playing .glyph i {
+    content: ''; display: block; width: 2px; height: 100%;
+    background: var(--cyan); border-radius: 1px; transform-origin: bottom;
+    animation: eqBar 0.9s var(--ease) infinite;
   }
-  .chip.playing .dot { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+  .chip.playing .glyph i { animation-delay: 0.15s; }
+  .chip.playing .glyph::after { animation-delay: 0.3s; }
+  .chip:not(.playing) .glyph i { display: none; }
   .chip .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .chip .del {
-    background: none; border: none; color: var(--text-dim);
-    cursor: pointer; font-size: 15px; line-height: 1;
-    padding: 0 1px; border-radius: 4px; flex-shrink: 0;
-    transition: color 0.2s;
+    background: none; border: none; color: var(--text-dim); cursor: pointer;
+    font-size: 15px; line-height: 1; padding: 0 1px; border-radius: 4px;
+    flex-shrink: 0; transition: color 0.2s;
   }
   .chip .del:hover { color: var(--magenta); }
 
-  .controls {
-    max-width: 1120px; margin: 0 auto;
-    display: flex; align-items: center; gap: 16px;
-  }
+  .controls { max-width: 1120px; margin: 0 auto; display: flex; align-items: center; gap: 16px; }
+  .controls > * { animation: riseIn 0.6s var(--ease) both; }
+  .controls > *:nth-child(1) { animation-delay: 0.15s; }
+  .controls > *:nth-child(2) { animation-delay: 0.22s; }
+  .controls > *:nth-child(3) { animation-delay: 0.29s; }
+  .controls > *:nth-child(4) { animation-delay: 0.36s; }
 
   .btn {
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    color: var(--text);
-    border-radius: 12px;
-    cursor: pointer;
-    font-family: var(--sans);
+    background: var(--panel); border: 1px solid var(--panel-border); color: var(--text);
+    border-radius: 12px; cursor: pointer; font-family: var(--sans);
     transition: transform 0.35s var(--spring), border-color 0.2s, background 0.2s;
   }
   .btn:hover { border-color: rgba(120,140,220,0.35); background: rgba(22,30,58,0.9); }
   .btn:active { transform: scale(0.9); }
 
   #playBtn {
-    width: 48px; height: 48px;
-    display: flex; align-items: center; justify-content: center;
-    flex-shrink: 0; border-radius: 50%;
-    border-color: rgba(0,229,255,0.5);
+    width: 48px; height: 48px; display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0; border-radius: 50%; border-color: rgba(0,229,255,0.5);
     background: linear-gradient(135deg, rgba(0,229,255,0.18), rgba(255,46,147,0.12));
   }
+  #playBtn.playing { animation: ringPulse 1.8s ease-out infinite; }
   #playBtn:disabled { opacity: 0.4; cursor: default; }
   #playBtn:disabled:active { transform: none; }
   #playBtn svg { width: 17px; height: 17px; fill: var(--text); }
 
   #uploadBtn { padding: 12px 18px; font-size: 13px; font-weight: 500; white-space: nowrap; }
 
-  .volume-group {
-    display: flex; align-items: center; gap: 10px;
-    color: var(--text-dim); flex-shrink: 0;
-  }
+  .volume-group { display: flex; align-items: center; gap: 10px; color: var(--text-dim); flex-shrink: 0; }
   .volume-group svg { width: 16px; height: 16px; fill: var(--text-dim); }
 
   input[type="range"] {
-    -webkit-appearance: none; appearance: none;
-    width: 92px; height: 3px;
+    -webkit-appearance: none; appearance: none; width: 92px; height: 3px;
     background: var(--panel-border); border-radius: 2px; outline: none;
   }
   input[type="range"]::-webkit-slider-thumb {
-    -webkit-appearance: none; appearance: none;
-    width: 13px; height: 13px; border-radius: 50%;
-    background: var(--cyan); cursor: pointer;
-    box-shadow: 0 0 10px rgba(0,229,255,0.7);
-    transition: transform 0.2s var(--spring);
+    -webkit-appearance: none; appearance: none; width: 13px; height: 13px;
+    border-radius: 50%; background: var(--cyan); cursor: pointer;
+    box-shadow: 0 0 10px rgba(0,229,255,0.7); transition: transform 0.2s var(--spring);
   }
   input[type="range"]::-webkit-slider-thumb:hover { transform: scale(1.25); }
 
   .modes {
-    display: flex; gap: 5px;
-    margin-left: auto;
-    background: var(--panel);
-    border: 1px solid var(--panel-border);
-    border-radius: 12px;
-    padding: 4px;
-    overflow-x: auto;
-    scrollbar-width: none;
-    max-width: 100%;
+    position: relative; display: flex; gap: 5px; margin-left: auto;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 12px; padding: 4px; overflow-x: auto;
+    scrollbar-width: none; max-width: 100%;
   }
   .modes::-webkit-scrollbar { display: none; }
 
-  .mode-btn {
-    background: transparent; border: none;
-    color: var(--text-dim);
-    font-family: var(--mono);
-    font-size: 10.5px; letter-spacing: 0.06em;
-    text-transform: uppercase;
-    padding: 8px 13px; border-radius: 8px;
-    cursor: pointer; white-space: nowrap;
-    transition: transform 0.35s var(--spring), color 0.2s, background 0.3s;
-  }
-  .mode-btn.active {
+  .mode-indicator {
+    position: absolute; top: 4px; bottom: 4px; left: 0; width: 0;
+    border-radius: 8px;
     background: linear-gradient(135deg, var(--cyan), var(--magenta));
-    color: #060815; font-weight: 700;
-    transform: scale(1.04);
+    box-shadow: 0 0 18px rgba(0,229,255,0.35);
+    transform: translateX(0); z-index: 0;
+    transition: transform 0.5s var(--spring), width 0.5s var(--spring);
+    pointer-events: none;
   }
+
+  .mode-btn {
+    position: relative; z-index: 1;
+    background: transparent; border: none; color: var(--text-dim);
+    font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.06em;
+    text-transform: uppercase; padding: 8px 13px; border-radius: 8px;
+    cursor: pointer; white-space: nowrap;
+    transition: color 0.3s var(--ease), transform 0.35s var(--spring);
+  }
+  .mode-btn.active { color: #050710; font-weight: 700; }
   .mode-btn:not(.active):hover { color: var(--text); }
   .mode-btn:active { transform: scale(0.92); }
 
@@ -274,6 +227,10 @@
     .controls { gap: 10px; flex-wrap: wrap; }
     .modes { order: 3; width: 100%; margin-left: 0; }
     .volume-group { order: 2; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; transition-duration: 0.01ms !important; }
   }
 </style>
 </head>
@@ -318,6 +275,7 @@
     </div>
 
     <div class="modes" id="modes">
+      <div class="mode-indicator" id="modeIndicator"></div>
       <button class="mode-btn active" data-mode="bars">Bars</button>
       <button class="mode-btn" data-mode="mirror">Mirror</button>
       <button class="mode-btn" data-mode="wave">Wave</button>
@@ -335,62 +293,68 @@
 (() => {
   'use strict';
 
-  const canvas = document.getElementById('canvas');
-  const ctx = canvas.getContext('2d');
-  const wrap = document.getElementById('canvasWrap');
-  const audio = document.getElementById('audio');
-  const fileInput = document.getElementById('fileInput');
-  const uploadBtn = document.getElementById('uploadBtn');
-  const playBtn = document.getElementById('playBtn');
-  const playIcon = document.getElementById('playIcon');
-  const pauseIcon = document.getElementById('pauseIcon');
-  const volumeSlider = document.getElementById('volumeSlider');
-  const trackName = document.getElementById('trackName');
-  const idleHint = document.getElementById('idleHint');
+  const $ = id => document.getElementById(id);
+  const canvas = $('canvas'), ctx = canvas.getContext('2d');
+  const wrap = $('canvasWrap'), audio = $('audio');
+  const fileInput = $('fileInput'), uploadBtn = $('uploadBtn');
+  const playBtn = $('playBtn'), playIcon = $('playIcon'), pauseIcon = $('pauseIcon');
+  const volumeSlider = $('volumeSlider'), trackName = $('trackName'), idleHint = $('idleHint');
   const modeBtns = document.querySelectorAll('.mode-btn');
-  const recentEl = document.getElementById('recent');
-  const recentRow = document.getElementById('recentRow');
-  const banner = document.getElementById('banner');
-  const bannerClose = document.getElementById('bannerClose');
+  const modeIndicator = $('modeIndicator'), modesEl = $('modes');
+  const recentEl = $('recent'), recentRow = $('recentRow');
+  const banner = $('banner'), bannerClose = $('bannerClose');
 
   let mode = 'bars';
   let audioCtx, analyser, source, freqData, timeData, bufferLength;
   let isPlaying = false, hasTrack = false;
   let dpr = window.devicePixelRatio || 1;
-  let idleT = 0;
-  let currentUrl = null;
-  let currentName = null;
-  let privateMode = false;
+  let currentUrl = null, currentName = null;
 
+  // motion state
   const MAXB = 256;
   const bars = new Float32Array(MAXB);
   const peaks = new Float32Array(MAXB);
   const peakVel = new Float32Array(MAXB);
-  const orbPts = new Float32Array(160);
-  let particles = [];
-  let bassEnv = 0;
+  const targets = new Float32Array(MAXB);
+  const scratch = new Float32Array(MAXB);
+  const orbPts = new Float32Array(180);
+  let bassEnv = 0, energyEnv = 0, bassAvg = 0, beatFlash = 0, spin = 0, idleT = 0;
 
+  // frame-rate-independent exponential damping
+  function damp(cur, target, rate, dt) { return cur + (target - cur) * (1 - Math.exp(-rate * dt)); }
+
+  // ---------- sizing ----------
   function resize() {
     dpr = window.devicePixelRatio || 1;
-    const rect = wrap.getBoundingClientRect();
-    canvas.width = Math.max(1, rect.width * dpr);
-    canvas.height = Math.max(1, rect.height * dpr);
+    const r = wrap.getBoundingClientRect();
+    canvas.width = Math.max(1, r.width * dpr);
+    canvas.height = Math.max(1, r.height * dpr);
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
-  window.addEventListener('resize', resize);
+  function size() { const r = wrap.getBoundingClientRect(); return { w: r.width, h: r.height }; }
+  window.addEventListener('resize', () => { resize(); updateIndicator(); });
   resize();
 
-  function size() {
-    const r = wrap.getBoundingClientRect();
-    return { w: r.width, h: r.height };
-  }
+  // ---------- glow sprites (pre-rendered for performance) ----------
+  const HUES = [[0,229,255],[80,200,255],[150,120,255],[200,90,235],[255,70,170],[255,46,147]];
+  const sprites = HUES.map(rgb => {
+    const c = document.createElement('canvas'); c.width = c.height = 64;
+    const g = c.getContext('2d');
+    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+    grad.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},1)`);
+    grad.addColorStop(0.2, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.55)`);
+    grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+    g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+    return c;
+  });
 
+  // ---------- audio ----------
   function setupGraph() {
     if (audioCtx) return;
     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
     analyser = audioCtx.createAnalyser();
     analyser.fftSize = 2048;
-    analyser.smoothingTimeConstant = 0.85;
+    analyser.smoothingTimeConstant = 0.8;
     bufferLength = analyser.frequencyBinCount;
     freqData = new Uint8Array(bufferLength);
     timeData = new Uint8Array(bufferLength);
@@ -400,8 +364,7 @@
   }
 
   function logSample(i, count) {
-    const minL = Math.log(2);
-    const maxL = Math.log(bufferLength);
+    const minL = Math.log(2), maxL = Math.log(bufferLength);
     const lo = Math.floor(Math.exp(minL + (maxL - minL) * (i / count)));
     let hi = Math.floor(Math.exp(minL + (maxL - minL) * ((i + 1) / count)));
     if (hi <= lo) hi = lo + 1;
@@ -409,389 +372,288 @@
     for (let b = lo; b < hi && b < bufferLength; b++) { sum += freqData[b]; c++; }
     return c ? sum / c : 0;
   }
-
-  function bass() {
-    let sum = 0;
-    for (let b = 1; b < 12; b++) sum += freqData[b];
-    return sum / 11 / 255;
+  // fill targets[] with spatially-smoothed, log-scaled spectrum
+  function buildTargets(count, scale) {
+    for (let i = 0; i < count; i++) scratch[i] = logSample(i, count) / 255;
+    for (let i = 0; i < count; i++) {
+      const a = scratch[Math.max(0, i - 1)], b = scratch[i], c = scratch[Math.min(count - 1, i + 1)];
+      targets[i] = ((a + 2 * b + c) / 4) * scale;
+    }
   }
+  function bass() { let s = 0; for (let b = 1; b < 12; b++) s += freqData[b]; return s / 11 / 255; }
+  function energy() { let s = 0; for (let b = 0; b < bufferLength; b++) s += freqData[b]; return s / bufferLength / 255; }
 
+  // ---------- IndexedDB recents ----------
   let db = null;
   function openDB() {
     return new Promise((res, rej) => {
-      let req;
-      try { req = indexedDB.open('vizlab', 1); }
-      catch (e) { return rej(e); }
-      req.onupgradeneeded = () => {
-        const d = req.result;
-        if (!d.objectStoreNames.contains('tracks'))
-          d.createObjectStore('tracks', { keyPath: 'id' });
-      };
+      let req; try { req = indexedDB.open('vizlab', 1); } catch (e) { return rej(e); }
+      req.onupgradeneeded = () => { const d = req.result; if (!d.objectStoreNames.contains('tracks')) d.createObjectStore('tracks', { keyPath: 'id' }); };
       req.onsuccess = () => res(req.result);
       req.onerror = () => rej(req.error);
       req.onblocked = () => rej(new Error('blocked'));
     });
   }
-
   async function saveTrack(name, blob) {
     if (!db) return;
     try {
       const all = await getTracks();
       const filtered = all.filter(t => t.name !== name);
       const entry = { id: 'id-' + Date.now(), name, blob, date: Date.now() };
-      const keep = [entry, ...filtered].slice(0, 6);
-      const toDelete = [entry, ...filtered].slice(6);
-      const tx = db.transaction('tracks', 'readwrite');
-      const store = tx.objectStore('tracks');
-      keep.forEach(t => store.put(t));
-      toDelete.forEach(t => store.delete(t.id));
+      const keep = [entry, ...filtered].slice(0, 6), toDel = [entry, ...filtered].slice(6);
+      const tx = db.transaction('tracks', 'readwrite'), store = tx.objectStore('tracks');
+      keep.forEach(t => store.put(t)); toDel.forEach(t => store.delete(t.id));
       tx.oncomplete = () => renderRecent();
     } catch (e) {}
   }
-
   function getTracks() {
     return new Promise((res) => {
       if (!db) return res([]);
-      try {
-        const tx = db.transaction('tracks', 'readonly');
-        const req = tx.objectStore('tracks').getAll();
-        req.onsuccess = () => res((req.result || []).sort((a, b) => b.date - a.date));
-        req.onerror = () => res([]);
+      try { const tx = db.transaction('tracks', 'readonly'); const req = tx.objectStore('tracks').getAll();
+        req.onsuccess = () => res((req.result || []).sort((a, b) => b.date - a.date)); req.onerror = () => res([]);
       } catch (e) { res([]); }
     });
   }
-
   async function deleteTrack(id) {
     if (!db) return;
-    try {
-      const tx = db.transaction('tracks', 'readwrite');
-      tx.objectStore('tracks').delete(id);
-      tx.oncomplete = () => renderRecent();
-    } catch (e) {}
+    try { const tx = db.transaction('tracks', 'readwrite'); tx.objectStore('tracks').delete(id); tx.oncomplete = () => renderRecent(); } catch (e) {}
   }
-
   async function renderRecent() {
     const all = await getTracks();
     recentRow.innerHTML = '';
     if (!all.length) { recentEl.classList.remove('show'); return; }
     recentEl.classList.add('show');
-    all.forEach(t => {
+    all.forEach((t, idx) => {
       const chip = document.createElement('div');
       chip.className = 'chip' + (t.name === currentName ? ' playing' : '');
-      chip.innerHTML = '<span class="dot"></span><span class="name"></span><button class="del" aria-label="Remove">&times;</button>';
+      chip.style.animationDelay = (idx * 0.05) + 's';
+      chip.innerHTML = '<span class="glyph"><span class="dot"></span><i></i></span><span class="name"></span><button class="del" aria-label="Remove">&times;</button>';
       chip.querySelector('.name').textContent = t.name;
-      chip.addEventListener('click', (e) => {
-        if (e.target.classList.contains('del')) return;
-        playBlob(t.name, t.blob);
-      });
-      chip.querySelector('.del').addEventListener('click', (e) => {
-        e.stopPropagation();
-        deleteTrack(t.id);
-      });
+      chip.addEventListener('click', (e) => { if (e.target.classList.contains('del')) return; playBlob(t.name, t.blob); });
+      chip.querySelector('.del').addEventListener('click', (e) => { e.stopPropagation(); deleteTrack(t.id); });
       recentRow.appendChild(chip);
     });
   }
 
   async function detectPrivate() {
     let suspect = false;
-    try {
-      if (navigator.storage && navigator.storage.estimate) {
-        const est = await navigator.storage.estimate();
-        if (est.quota && est.quota < 120 * 1024 * 1024) suspect = true;
-      }
-    } catch (e) {}
-    try { db = await openDB(); }
-    catch (e) { suspect = true; }
-    try {
-      localStorage.setItem('__t', '1');
-      localStorage.removeItem('__t');
-    } catch (e) { suspect = true; }
+    try { if (navigator.storage && navigator.storage.estimate) { const est = await navigator.storage.estimate(); if (est.quota && est.quota < 120 * 1024 * 1024) suspect = true; } } catch (e) {}
+    try { db = await openDB(); } catch (e) { suspect = true; }
+    try { localStorage.setItem('__t', '1'); localStorage.removeItem('__t'); } catch (e) { suspect = true; }
     return suspect;
   }
 
+  // ---------- load / play ----------
   function loadUrl(url, name) {
     if (currentUrl) URL.revokeObjectURL(currentUrl);
-    currentUrl = url;
-    currentName = name;
-    audio.src = url;
-    trackName.textContent = name;
-    hasTrack = true;
-    idleHint.style.opacity = '0';
-    playBtn.disabled = false;
+    currentUrl = url; currentName = name;
+    audio.src = url; trackName.textContent = name;
+    hasTrack = true; idleHint.style.opacity = '0'; playBtn.disabled = false;
     setupGraph();
-    audio.play().then(() => {
-      if (audioCtx.state === 'suspended') audioCtx.resume();
-    }).catch(() => {});
+    audio.play().then(() => { if (audioCtx.state === 'suspended') audioCtx.resume(); }).catch(() => {});
     renderRecent();
   }
-
   fileInput.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    const url = URL.createObjectURL(file);
-    loadUrl(url, file.name);
-    saveTrack(file.name, file);
+    const file = e.target.files[0]; if (!file) return;
+    loadUrl(URL.createObjectURL(file), file.name); saveTrack(file.name, file);
   });
-
-  function playBlob(name, blob) {
-    const url = URL.createObjectURL(blob);
-    loadUrl(url, name);
-    saveTrack(name, blob);
-  }
+  function playBlob(name, blob) { loadUrl(URL.createObjectURL(blob), name); saveTrack(name, blob); }
 
   uploadBtn.addEventListener('click', () => fileInput.click());
-
   playBtn.addEventListener('click', () => {
     if (!hasTrack) return;
     if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
     isPlaying ? audio.pause() : audio.play();
   });
-
   audio.addEventListener('play', () => { isPlaying = true; updateIcon(); });
   audio.addEventListener('pause', () => { isPlaying = false; updateIcon(); });
   audio.addEventListener('ended', () => { isPlaying = false; updateIcon(); });
-
   function updateIcon() {
     playIcon.style.display = isPlaying ? 'none' : 'block';
     pauseIcon.style.display = isPlaying ? 'block' : 'none';
+    playBtn.classList.toggle('playing', isPlaying);
   }
-
   volumeSlider.addEventListener('input', (e) => { audio.volume = parseFloat(e.target.value); });
   audio.volume = 0.8;
 
+  // ---------- mode switch + sliding indicator ----------
+  function updateIndicator() {
+    const active = document.querySelector('.mode-btn.active');
+    if (!active) return;
+    modeIndicator.style.width = active.offsetWidth + 'px';
+    modeIndicator.style.transform = `translateX(${active.offsetLeft}px)`;
+  }
   modeBtns.forEach(btn => {
     btn.addEventListener('click', () => {
       modeBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       mode = btn.dataset.mode;
+      updateIndicator();
+      btn.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
     });
   });
-
   bannerClose.addEventListener('click', () => banner.classList.remove('show'));
 
-  function lerpColor(a, b, t) {
-    return 'rgb(' + Math.round(a[0]+(b[0]-a[0])*t) + ',' + Math.round(a[1]+(b[1]-a[1])*t) + ',' + Math.round(a[2]+(b[2]-a[2])*t) + ')';
-  }
+  // ---------- helpers ----------
   const CY = [0, 229, 255], MG = [255, 46, 147];
-
-  function vGrad(h) {
-    const g = ctx.createLinearGradient(0, h, 0, 0);
-    g.addColorStop(0, '#00e5ff');
-    g.addColorStop(1, '#ff2e93');
-    return g;
-  }
-
+  function lerpColor(a, b, t) { return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`; }
   function roundTop(x, y, w, h, r) {
     r = Math.min(r, w / 2, h);
     ctx.beginPath();
-    ctx.moveTo(x, y + h);
-    ctx.lineTo(x, y + r);
+    ctx.moveTo(x, y + h); ctx.lineTo(x, y + r);
     ctx.quadraticCurveTo(x, y, x + r, y);
-    ctx.lineTo(x + w - r, y);
-    ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-    ctx.lineTo(x + w, y + h);
-    ctx.closePath();
+    ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r);
+    ctx.lineTo(x + w, y + h); ctx.closePath();
   }
+  function add() { ctx.globalCompositeOperation = 'lighter'; }
+  function normal() { ctx.globalCompositeOperation = 'source-over'; }
 
-  function drawBars() {
-    const s = size(), w = s.w, h = s.h;
+  // ---------- visualizers ----------
+  function drawBars(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
-    const count = 64, gap = 3;
-    const bw = (w - gap * (count - 1)) / count;
-    ctx.fillStyle = vGrad(h);
-    ctx.shadowColor = 'rgba(0,229,255,0.30)';
-    ctx.shadowBlur = 14;
+    const count = 64, gap = 3, bw = (w - gap * (count - 1)) / count;
+    buildTargets(count, h * 0.9);
+    add();
+    const grad = ctx.createLinearGradient(0, h, 0, 0);
+    grad.addColorStop(0, '#00e5ff'); grad.addColorStop(1, '#ff2e93');
+    ctx.fillStyle = grad; ctx.shadowColor = 'rgba(0,229,255,0.35)'; ctx.shadowBlur = 16;
     for (let i = 0; i < count; i++) {
-      const target = (logSample(i, count) / 255) * h * 0.9;
-      bars[i] += (target - bars[i]) * (target > bars[i] ? 0.5 : 0.12);
-      const bh = Math.max(2, bars[i]);
-      const x = i * (bw + gap);
-      roundTop(x, h - bh, bw, bh, 3);
-      ctx.fill();
+      bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 34 : 9, dt);
+      const bh = Math.max(2, bars[i]), x = i * (bw + gap);
+      roundTop(x, h - bh, bw, bh, 3); ctx.fill();
+      // reflection
+      ctx.save(); ctx.globalAlpha = 0.16;
+      roundTop(x, h, bw, -Math.min(bh, h * 0.18), 3); ctx.fill(); ctx.restore();
       if (bh > peaks[i]) { peaks[i] = bh; peakVel[i] = 0; }
-      else { peakVel[i] += 0.45; peaks[i] -= peakVel[i]; }
+      else { peakVel[i] += h * 2.2 * dt; peaks[i] -= peakVel[i] * dt; }
       if (peaks[i] < 2) peaks[i] = 2;
     }
-    ctx.shadowBlur = 0;
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    for (let i = 0; i < count; i++) {
-      const x = i * (bw + gap);
-      ctx.fillRect(x, h - peaks[i] - 3, bw, 2);
-    }
+    ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    for (let i = 0; i < count; i++) ctx.fillRect(i * (bw + gap), h - peaks[i] - 3, bw, 2);
+    normal();
   }
 
-  function drawMirror() {
-    const s = size(), w = s.w, h = s.h;
+  function drawMirror(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
-    const mid = h / 2;
-    const count = 72, gap = 2;
-    const bw = (w - gap * (count - 1)) / count;
-    ctx.shadowColor = 'rgba(255,46,147,0.28)';
-    ctx.shadowBlur = 14;
+    const mid = h / 2, count = 72, gap = 2, bw = (w - gap * (count - 1)) / count;
+    buildTargets(count, mid * 0.94);
+    add(); ctx.shadowColor = 'rgba(255,46,147,0.3)'; ctx.shadowBlur = 16;
     for (let i = 0; i < count; i++) {
-      const target = (logSample(i, count) / 255) * mid * 0.92;
-      bars[i] += (target - bars[i]) * (target > bars[i] ? 0.5 : 0.12);
-      const bh = Math.max(1.5, bars[i]);
-      const x = i * (bw + gap);
-      const t = i / count;
+      bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 34 : 9, dt);
+      const bh = Math.max(1.5, bars[i]), x = i * (bw + gap), t = i / count;
       const g = ctx.createLinearGradient(0, mid - bh, 0, mid + bh);
-      g.addColorStop(0, lerpColor(CY, MG, t));
-      g.addColorStop(1, lerpColor(MG, CY, t));
+      g.addColorStop(0, lerpColor(CY, MG, t)); g.addColorStop(1, lerpColor(MG, CY, t));
       ctx.fillStyle = g;
-      roundTop(x, mid - bh, bw, bh, 2);
-      ctx.fill();
-      ctx.save();
-      ctx.globalAlpha = 0.55;
-      ctx.beginPath();
-      ctx.moveTo(x, mid);
-      ctx.lineTo(x, mid + bh - 2);
-      ctx.quadraticCurveTo(x, mid + bh, x + 2, mid + bh);
-      ctx.lineTo(x + bw - 2, mid + bh);
-      ctx.quadraticCurveTo(x + bw, mid + bh, x + bw, mid + bh - 2);
-      ctx.lineTo(x + bw, mid);
-      ctx.closePath();
-      ctx.fill();
-      ctx.restore();
+      roundTop(x, mid - bh, bw, bh, 2); ctx.fill();
+      ctx.save(); ctx.globalAlpha = 0.6;
+      roundTop(x, mid + bh, bw, -bh, 2); ctx.fill(); ctx.restore();
     }
-    ctx.shadowBlur = 0;
+    ctx.shadowBlur = 0; normal();
   }
 
-  function drawWave() {
-    const s = size(), w = s.w, h = s.h;
+  function drawWave(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     analyser.getByteTimeDomainData(timeData);
-    const line = (color, glow, top, lw) => {
-      ctx.lineWidth = lw;
-      ctx.strokeStyle = color;
-      ctx.shadowColor = glow;
-      ctx.shadowBlur = 14;
+    add();
+    const slice = w / bufferLength;
+    const stroke = (color, glow, top, lw, fill) => {
       ctx.beginPath();
-      const slice = w / bufferLength;
       let x = 0;
       for (let i = 0; i < bufferLength; i++) {
-        const v = timeData[i] / 128.0;
-        const y = top ? (v * h) / 2 : h - (v * h) / 2;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        x += slice;
+        const v = timeData[i] / 128.0, y = top ? (v * h) / 2 : h - (v * h) / 2;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); x += slice;
       }
-      ctx.stroke();
+      if (fill) {
+        ctx.lineTo(w, h / 2); ctx.lineTo(0, h / 2); ctx.closePath();
+        const g = ctx.createLinearGradient(0, 0, 0, h);
+        g.addColorStop(0, 'rgba(0,229,255,0.18)'); g.addColorStop(0.5, 'rgba(0,229,255,0)');
+        ctx.fillStyle = g; ctx.fill(); return;
+      }
+      ctx.lineWidth = lw; ctx.strokeStyle = color; ctx.shadowColor = glow; ctx.shadowBlur = 16; ctx.stroke();
     };
-    line('#00e5ff', 'rgba(0,229,255,0.5)', true, 2.6);
-    ctx.globalAlpha = 0.5;
-    line('#ff2e93', 'rgba(255,46,147,0.4)', false, 1.6);
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
+    stroke('#00e5ff', 'rgba(0,229,255,0.6)', true, 0, true);
+    stroke('#00e5ff', 'rgba(0,229,255,0.6)', true, 2.6, false);
+    ctx.globalAlpha = 0.55;
+    stroke('#ff2e93', 'rgba(255,46,147,0.5)', false, 1.6, false);
+    ctx.globalAlpha = 1; ctx.shadowBlur = 0; normal();
   }
 
-  function drawArea() {
-    const s = size(), w = s.w, h = s.h;
+  function drawArea(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
     const count = 96;
+    buildTargets(count, h * 0.85);
     const pts = [];
     for (let i = 0; i < count; i++) {
-      const target = (logSample(i, count) / 255) * h * 0.85;
-      bars[i] += (target - bars[i]) * (target > bars[i] ? 0.4 : 0.14);
+      bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 22 : 10, dt);
       pts.push({ x: (i / (count - 1)) * w, y: h - Math.max(2, bars[i]) });
     }
-    ctx.beginPath();
-    ctx.moveTo(0, h);
-    ctx.lineTo(pts[0].x, pts[0].y);
-    for (let i = 0; i < pts.length - 1; i++) {
-      const xc = (pts[i].x + pts[i + 1].x) / 2;
-      const yc = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
-    }
-    ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
-    ctx.lineTo(w, h);
-    ctx.closePath();
+    add();
+    const path = () => {
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const xc = (pts[i].x + pts[i + 1].x) / 2, yc = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
+      }
+    };
+    path(); ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
     const fill = ctx.createLinearGradient(0, 0, 0, h);
-    fill.addColorStop(0, 'rgba(0,229,255,0.55)');
-    fill.addColorStop(0.5, 'rgba(120,80,220,0.25)');
-    fill.addColorStop(1, 'rgba(255,46,147,0.05)');
-    ctx.fillStyle = fill;
-    ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    for (let i = 0; i < pts.length - 1; i++) {
-      const xc = (pts[i].x + pts[i + 1].x) / 2;
-      const yc = (pts[i].y + pts[i + 1].y) / 2;
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
-    }
-    ctx.strokeStyle = '#7fefff';
-    ctx.lineWidth = 2;
-    ctx.shadowColor = 'rgba(0,229,255,0.6)';
-    ctx.shadowBlur = 16;
-    ctx.stroke();
-    ctx.shadowBlur = 0;
+    fill.addColorStop(0, 'rgba(0,229,255,0.5)'); fill.addColorStop(0.5, 'rgba(120,80,220,0.22)'); fill.addColorStop(1, 'rgba(255,46,147,0.03)');
+    ctx.fillStyle = fill; ctx.fill();
+    path(); ctx.strokeStyle = '#8ff2ff'; ctx.lineWidth = 2; ctx.shadowColor = 'rgba(0,229,255,0.7)'; ctx.shadowBlur = 18; ctx.stroke();
+    ctx.shadowBlur = 0; normal();
   }
 
-  function drawRadial() {
-    const s = size(), w = s.w, h = s.h;
+  function drawRadial(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
-    const cx = w / 2, cy = h / 2;
-    const baseR = Math.min(w, h) * 0.16;
-    const count = 100;
-    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 1.4);
-    core.addColorStop(0, 'rgba(0,229,255,0.28)');
-    core.addColorStop(1, 'rgba(0,229,255,0)');
-    ctx.fillStyle = core;
-    ctx.beginPath();
-    ctx.arc(cx, cy, baseR * 1.4, 0, Math.PI * 2);
-    ctx.fill();
+    const cx = w / 2, cy = h / 2, baseR = Math.min(w, h) * 0.16, count = 100;
+    spin += dt * 0.15;
+    add();
+    const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 1.5);
+    core.addColorStop(0, 'rgba(0,229,255,0.3)'); core.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, baseR * 1.5, 0, Math.PI * 2); ctx.fill();
+    buildTargets(count, Math.min(w, h) * 0.34);
     ctx.lineCap = 'round';
     for (let i = 0; i < count; i++) {
-      const target = (logSample(i, count) / 255) * Math.min(w, h) * 0.34;
-      bars[i] += (target - bars[i]) * (target > bars[i] ? 0.45 : 0.14);
+      bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 30 : 10, dt);
       const len = Math.max(2, bars[i]);
-      const ang = (i / count) * Math.PI * 2 - Math.PI / 2;
-      const c = Math.cos(ang), sn = Math.sin(ang);
-      const t = i / count;
+      const ang = (i / count) * Math.PI * 2 - Math.PI / 2 + spin;
+      const c = Math.cos(ang), sn = Math.sin(ang), t = i / count;
       ctx.strokeStyle = t < 0.5 ? lerpColor(CY, MG, t * 2) : lerpColor(MG, CY, (t - 0.5) * 2);
-      ctx.lineWidth = 3;
-      ctx.shadowColor = 'rgba(0,229,255,0.3)';
-      ctx.shadowBlur = 8;
+      ctx.lineWidth = 3; ctx.shadowColor = 'rgba(0,229,255,0.35)'; ctx.shadowBlur = 8;
       ctx.beginPath();
       ctx.moveTo(cx + c * baseR, cy + sn * baseR);
-      ctx.lineTo(cx + c * (baseR + len), cy + sn * (baseR + len));
-      ctx.stroke();
+      ctx.lineTo(cx + c * (baseR + len), cy + sn * (baseR + len)); ctx.stroke();
     }
-    ctx.shadowBlur = 0;
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
-    ctx.stroke();
+    ctx.shadowBlur = 0; normal();
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2); ctx.stroke();
   }
 
-  function drawOrb() {
-    const s = size(), w = s.w, h = s.h;
+  function drawOrb(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
     const cx = w / 2, cy = h / 2;
-    const b = bass();
-    bassEnv += (b - bassEnv) * 0.18;
-    const baseR = Math.min(w, h) * (0.19 + bassEnv * 0.09);
+    bassEnv = damp(bassEnv, bass(), 12, dt);
+    spin += dt * 0.1;
+    const baseR = Math.min(w, h) * (0.19 + bassEnv * 0.1);
     const N = orbPts.length;
     for (let i = 0; i < N; i++) {
-      const idx = Math.floor((i / N) * 64) + 2;
-      const target = (freqData[idx] / 255) * baseR * 0.75;
-      orbPts[i] += (target - orbPts[i]) * 0.22;
+      const idx = Math.floor((i / N) * 60) + 2;
+      const wobble = Math.sin(spin * 2 + i * 0.5) * baseR * 0.04;
+      const target = (freqData[idx] / 255) * baseR * 0.7 + wobble;
+      orbPts[i] = damp(orbPts[i], target, 16, dt);
     }
-    const glow = ctx.createRadialGradient(cx, cy, baseR * 0.3, cx, cy, baseR * 2);
-    glow.addColorStop(0, 'rgba(120,80,220,0.30)');
-    glow.addColorStop(1, 'rgba(120,80,220,0)');
-    ctx.fillStyle = glow;
-    ctx.beginPath();
-    ctx.arc(cx, cy, baseR * 2, 0, Math.PI * 2);
-    ctx.fill();
+    add();
+    const glow = ctx.createRadialGradient(cx, cy, baseR * 0.2, cx, cy, baseR * 2.2);
+    glow.addColorStop(0, 'rgba(120,80,220,0.35)'); glow.addColorStop(1, 'rgba(120,80,220,0)');
+    ctx.fillStyle = glow; ctx.beginPath(); ctx.arc(cx, cy, baseR * 2.2, 0, Math.PI * 2); ctx.fill();
     const pts = [];
     for (let i = 0; i < N; i++) {
-      const ang = (i / N) * Math.PI * 2;
-      const r = baseR + orbPts[i];
+      const ang = (i / N) * Math.PI * 2 + spin * 0.3, r = baseR + orbPts[i];
       pts.push([cx + Math.cos(ang) * r, cy + Math.sin(ang) * r]);
     }
     ctx.beginPath();
@@ -801,99 +663,133 @@
       ctx.quadraticCurveTo(cur[0], cur[1], (cur[0] + nxt[0]) / 2, (cur[1] + nxt[1]) / 2);
     }
     ctx.closePath();
-    const fill = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 1.5);
-    fill.addColorStop(0, 'rgba(0,229,255,0.9)');
-    fill.addColorStop(0.6, 'rgba(120,80,220,0.7)');
-    fill.addColorStop(1, 'rgba(255,46,147,0.6)');
-    ctx.fillStyle = fill;
-    ctx.shadowColor = 'rgba(0,229,255,0.5)';
-    ctx.shadowBlur = 30;
-    ctx.fill();
+    const fill = ctx.createRadialGradient(cx - baseR * 0.3, cy - baseR * 0.3, 0, cx, cy, baseR * 1.6);
+    fill.addColorStop(0, 'rgba(120,240,255,0.95)'); fill.addColorStop(0.55, 'rgba(120,80,220,0.7)'); fill.addColorStop(1, 'rgba(255,46,147,0.55)');
+    ctx.fillStyle = fill; ctx.shadowColor = 'rgba(0,229,255,0.55)'; ctx.shadowBlur = 34; ctx.fill();
     ctx.shadowBlur = 0;
-    ctx.beginPath();
-    ctx.arc(cx - baseR * 0.2, cy - baseR * 0.2, baseR * 0.35, 0, Math.PI * 2);
-    ctx.fillStyle = 'rgba(255,255,255,0.18)';
-    ctx.fill();
+    ctx.beginPath(); ctx.arc(cx - baseR * 0.22, cy - baseR * 0.22, baseR * 0.32, 0, Math.PI * 2);
+    ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fill();
+    normal();
   }
 
-  function drawParticles() {
-    const s = size(), w = s.w, h = s.h;
-    ctx.fillStyle = 'rgba(7,10,24,0.25)';
-    ctx.fillRect(0, 0, w, h);
+  // ---- particles: living field + beat bursts + constellation ----
+  let ambient = [], burst = [];
+  function initAmbient(w, h) {
+    const target = Math.min(150, Math.max(50, Math.round(w / 9)));
+    while (ambient.length < target) {
+      ambient.push({ x: Math.random() * w, y: Math.random() * h, vx: (Math.random() - 0.5) * 14, vy: (Math.random() - 0.5) * 14, sz: 1 + Math.random() * 2, hue: Math.floor(Math.random() * sprites.length) });
+    }
+    if (ambient.length > target) ambient.length = target;
+  }
+  function drawParticles(w, h, dt) {
+    // motion-blur trail
+    normal();
+    ctx.fillStyle = 'rgba(6,8,18,0.28)'; ctx.fillRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
     const cx = w / 2, cy = h / 2;
-    const b = bass();
-    bassEnv += (b - bassEnv) * 0.25;
-    if (bassEnv > 0.35 && particles.length < 220) {
-      const n = Math.floor(bassEnv * 8);
+    const b = bass(), e = energy();
+    bassEnv = damp(bassEnv, b, 18, dt);
+    energyEnv = damp(energyEnv, e, 8, dt);
+    bassAvg = damp(bassAvg, b, 1.5, dt);
+    beatFlash = Math.max(0, beatFlash - dt * 3);
+    // beat detection
+    if (b > bassAvg * 1.32 && b > 0.24 && beatFlash < 0.15) {
+      beatFlash = 1;
+      const n = Math.round(10 + b * 26);
       for (let k = 0; k < n; k++) {
-        const ang = Math.random() * Math.PI * 2;
-        const spd = 1 + bassEnv * 5 + Math.random() * 2;
-        particles.push({
-          x: cx, y: cy,
-          vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd,
-          life: 1, t: Math.random(),
-          size: 1.5 + Math.random() * 2.5
-        });
+        const ang = Math.random() * Math.PI * 2, spd = 60 + b * 320 + Math.random() * 120;
+        burst.push({ x: cx, y: cy, vx: Math.cos(ang) * spd, vy: Math.sin(ang) * spd, life: 1, sz: 2 + Math.random() * 3.5, hue: Math.floor(Math.random() * sprites.length) });
       }
     }
-    for (let i = particles.length - 1; i >= 0; i--) {
-      const p = particles[i];
-      p.x += p.vx; p.y += p.vy;
-      p.vx *= 0.97; p.vy *= 0.97;
-      p.life -= 0.012;
-      if (p.life <= 0) { particles.splice(i, 1); continue; }
-      ctx.globalAlpha = Math.max(0, p.life);
-      ctx.fillStyle = p.t < 0.5 ? '#00e5ff' : '#ff2e93';
-      ctx.shadowColor = ctx.fillStyle;
-      ctx.shadowBlur = 10;
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.size * p.life, 0, Math.PI * 2);
-      ctx.fill();
+    initAmbient(w, h);
+    spin += dt * 0.2;
+
+    add();
+    // ambient field
+    for (const p of ambient) {
+      // gentle curl + energy-driven drift
+      const curl = spin + (p.x + p.y) * 0.002;
+      p.vx += Math.cos(curl) * 6 * dt; p.vy += Math.sin(curl) * 6 * dt;
+      const damp2 = Math.pow(0.6, dt);
+      p.vx *= damp2; p.vy *= damp2;
+      p.x += p.vx * dt * (1 + energyEnv * 2); p.y += p.vy * dt * (1 + energyEnv * 2);
+      if (p.x < -20) p.x = w + 20; if (p.x > w + 20) p.x = -20;
+      if (p.y < -20) p.y = h + 20; if (p.y > h + 20) p.y = -20;
+      const r = p.sz * (2.4 + energyEnv * 3);
+      ctx.globalAlpha = 0.28 + energyEnv * 0.4;
+      const s = sprites[p.hue];
+      ctx.drawImage(s, p.x - r, p.y - r, r * 2, r * 2);
     }
-    ctx.globalAlpha = 1;
-    ctx.shadowBlur = 0;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 6 + bassEnv * 24, 0, Math.PI * 2);
-    const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 6 + bassEnv * 24);
-    g.addColorStop(0, 'rgba(255,255,255,0.9)');
-    g.addColorStop(1, 'rgba(0,229,255,0)');
-    ctx.fillStyle = g;
-    ctx.fill();
+    // constellation lines (bounded neighbor window)
+    ctx.globalAlpha = 0.5; ctx.lineWidth = 1;
+    const D = 90 + energyEnv * 40, D2 = D * D;
+    for (let i = 0; i < ambient.length; i++) {
+      const a = ambient[i];
+      for (let j = i + 1; j < Math.min(i + 7, ambient.length); j++) {
+        const bp = ambient[j], dx = a.x - bp.x, dy = a.y - bp.y, d2 = dx * dx + dy * dy;
+        if (d2 < D2) {
+          ctx.globalAlpha = (1 - d2 / D2) * (0.15 + energyEnv * 0.35);
+          ctx.strokeStyle = 'rgba(120,200,255,1)';
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(bp.x, bp.y); ctx.stroke();
+        }
+      }
+    }
+    // beat bursts
+    for (let i = burst.length - 1; i >= 0; i--) {
+      const p = burst[i];
+      const damp2 = Math.pow(0.25, dt);
+      p.vx *= damp2; p.vy *= damp2;
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.life -= dt * 0.85;
+      if (p.life <= 0) { burst.splice(i, 1); continue; }
+      const r = p.sz * (0.6 + p.life) * 2.6;
+      ctx.globalAlpha = Math.max(0, p.life);
+      ctx.drawImage(sprites[p.hue], p.x - r, p.y - r, r * 2, r * 2);
+    }
+    if (burst.length > 400) burst.splice(0, burst.length - 400);
+    // pulsing core
+    const cr = (14 + bassEnv * 60 + beatFlash * 20);
+    ctx.globalAlpha = 0.6 + beatFlash * 0.3;
+    ctx.drawImage(sprites[0], cx - cr, cy - cr, cr * 2, cr * 2);
+    ctx.globalAlpha = 1; normal();
   }
 
-  function drawIdle() {
-    const s = size(), w = s.w, h = s.h;
+  function drawIdle(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
-    idleT += 0.015;
-    const count = 64, gap = 3;
-    const bw = (w - gap * (count - 1)) / count;
-    ctx.fillStyle = 'rgba(122,131,173,0.30)';
+    idleT += dt;
+    const count = 64, gap = 3, bw = (w - gap * (count - 1)) / count;
+    add();
+    ctx.fillStyle = 'rgba(122,131,173,0.32)';
     for (let i = 0; i < count; i++) {
       const wob = Math.sin(idleT * 2 + i * 0.35) * 0.5 + 0.5;
       const bh = 4 + wob * h * 0.06;
-      roundTop(i * (bw + gap), h - bh, bw, bh, 3);
-      ctx.fill();
+      roundTop(i * (bw + gap), h - bh, bw, bh, 3); ctx.fill();
     }
+    normal();
   }
 
-  const dispatch = {
-    bars: drawBars, mirror: drawMirror, wave: drawWave,
-    area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles
-  };
+  const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles };
 
-  function tick() {
+  // ---------- loop ----------
+  let last = performance.now();
+  function tick(now) {
     requestAnimationFrame(tick);
-    if (hasTrack && analyser) (dispatch[mode] || drawBars)();
-    else drawIdle();
+    let dt = (now - last) / 1000; last = now;
+    if (dt > 0.05) dt = 0.05; if (dt <= 0) dt = 0.016;
+    const s = size();
+    if (hasTrack && analyser) (dispatch[mode] || drawBars)(s.w, s.h, dt);
+    else drawIdle(s.w, s.h, dt);
   }
-  tick();
+  requestAnimationFrame(tick);
 
+  // ---------- init ----------
   (async () => {
-    privateMode = await detectPrivate();
-    if (privateMode) banner.classList.add('show');
+    const priv = await detectPrivate();
+    if (priv) banner.classList.add('show');
     if (db) renderRecent();
+    requestAnimationFrame(() => requestAnimationFrame(updateIndicator));
   })();
+  window.addEventListener('load', () => requestAnimationFrame(updateIndicator));
 
 })();
 </script>
