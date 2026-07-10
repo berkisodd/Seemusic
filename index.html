@@ -522,9 +522,6 @@
       bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 34 : 9, dt);
       const bh = Math.max(2, bars[i]), x = i * (bw + gap);
       roundTop(x, h - bh, bw, bh, 3); ctx.fill();
-      // reflection
-      ctx.save(); ctx.globalAlpha = 0.16;
-      roundTop(x, h, bw, -Math.min(bh, h * 0.18), 3); ctx.fill(); ctx.restore();
       if (bh > peaks[i]) { peaks[i] = bh; peakVel[i] = 0; }
       else { peakVel[i] += h * 2.2 * dt; peaks[i] -= peakVel[i] * dt; }
       if (peaks[i] < 2) peaks[i] = 2;
@@ -538,46 +535,60 @@
     ctx.clearRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
     const mid = h / 2, count = 72, gap = 2, bw = (w - gap * (count - 1)) / count;
-    buildTargets(count, mid * 0.94);
-    add(); ctx.shadowColor = 'rgba(255,46,147,0.3)'; ctx.shadowBlur = 16;
+    const cgap = 2; // small gap so halves don't fuse into a bright center line
+    buildTargets(count, mid * 0.8);
+    normal(); ctx.shadowColor = 'rgba(255,46,147,0.25)'; ctx.shadowBlur = 8;
     for (let i = 0; i < count; i++) {
-      bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 34 : 9, dt);
+      bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 30 : 9, dt);
       const bh = Math.max(1.5, bars[i]), x = i * (bw + gap), t = i / count;
       const g = ctx.createLinearGradient(0, mid - bh, 0, mid + bh);
       g.addColorStop(0, lerpColor(CY, MG, t)); g.addColorStop(1, lerpColor(MG, CY, t));
       ctx.fillStyle = g;
-      roundTop(x, mid - bh, bw, bh, 2); ctx.fill();
-      ctx.save(); ctx.globalAlpha = 0.6;
-      roundTop(x, mid + bh, bw, -bh, 2); ctx.fill(); ctx.restore();
+      roundTop(x, mid - cgap - bh, bw, bh, 2); ctx.fill();
+      ctx.save(); ctx.globalAlpha = 0.3;
+      roundTop(x, mid + cgap + bh, bw, -bh, 2); ctx.fill(); ctx.restore();
     }
-    ctx.shadowBlur = 0; normal();
+    ctx.shadowBlur = 0;
   }
 
   function drawWave(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     analyser.getByteTimeDomainData(timeData);
-    add();
-    const slice = w / bufferLength;
-    const stroke = (color, glow, top, lw, fill) => {
-      ctx.beginPath();
-      let x = 0;
-      for (let i = 0; i < bufferLength; i++) {
-        const v = timeData[i] / 128.0, y = top ? (v * h) / 2 : h - (v * h) / 2;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y); x += slice;
+    const mid = h / 2, N = 200, amp = h * 0.44;
+    const top = [], bot = [];
+    for (let i = 0; i <= N; i++) {
+      const idx = Math.min(bufferLength - 1, Math.floor((i / N) * bufferLength));
+      let d = (timeData[idx] - 128) / 128;          // -1..1
+      d = Math.sign(d) * Math.pow(Math.abs(d), 0.75); // lift quiet detail
+      const x = (i / N) * w, off = d * amp;
+      top.push({ x, y: mid - off });
+      bot.push({ x, y: mid + off });
+    }
+    const trace = (pts) => {
+      ctx.beginPath(); ctx.moveTo(pts[0].x, pts[0].y);
+      for (let i = 0; i < pts.length - 1; i++) {
+        const xc = (pts[i].x + pts[i + 1].x) / 2, yc = (pts[i].y + pts[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
       }
-      if (fill) {
-        ctx.lineTo(w, h / 2); ctx.lineTo(0, h / 2); ctx.closePath();
-        const g = ctx.createLinearGradient(0, 0, 0, h);
-        g.addColorStop(0, 'rgba(0,229,255,0.18)'); g.addColorStop(0.5, 'rgba(0,229,255,0)');
-        ctx.fillStyle = g; ctx.fill(); return;
-      }
-      ctx.lineWidth = lw; ctx.strokeStyle = color; ctx.shadowColor = glow; ctx.shadowBlur = 16; ctx.stroke();
+      ctx.lineTo(pts[pts.length - 1].x, pts[pts.length - 1].y);
     };
-    stroke('#00e5ff', 'rgba(0,229,255,0.6)', true, 0, true);
-    stroke('#00e5ff', 'rgba(0,229,255,0.6)', true, 2.6, false);
-    ctx.globalAlpha = 0.55;
-    stroke('#ff2e93', 'rgba(255,46,147,0.5)', false, 1.6, false);
-    ctx.globalAlpha = 1; ctx.shadowBlur = 0; normal();
+    add();
+    // soft glow fill between the two traces
+    trace(top);
+    for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i].x, bot[i].y);
+    ctx.closePath();
+    const g = ctx.createLinearGradient(0, 0, 0, h);
+    g.addColorStop(0, 'rgba(0,229,255,0.10)'); g.addColorStop(0.5, 'rgba(120,80,220,0.06)'); g.addColorStop(1, 'rgba(255,46,147,0.10)');
+    ctx.fillStyle = g; ctx.fill();
+    // mirror trace (dim)
+    ctx.globalAlpha = 0.4; ctx.lineWidth = 1.6; ctx.strokeStyle = '#ff2e93';
+    ctx.shadowColor = 'rgba(255,46,147,0.5)'; ctx.shadowBlur = 14;
+    trace(bot); ctx.stroke();
+    // main trace (bold)
+    ctx.globalAlpha = 1; ctx.lineWidth = 3; ctx.strokeStyle = '#4ff0ff';
+    ctx.shadowColor = 'rgba(0,229,255,0.7)'; ctx.shadowBlur = 18;
+    trace(top); ctx.stroke();
+    ctx.shadowBlur = 0; normal();
   }
 
   function drawArea(w, h, dt) {
