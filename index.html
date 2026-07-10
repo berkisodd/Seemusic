@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Audio Visualizer</title>
+<style>
+  :root {
+    --bg: #080b1a;
+    --panel: #10152b;
+    --panel-border: #1e2547;
+    --cyan: #00e5ff;
+    --magenta: #ff2e93;
+    --text: #e8ecff;
+    --text-dim: #6b7399;
+    --mono: 'SF Mono', 'Consolas', 'Monaco', monospace;
+    --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+  }
+
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* ambient background glow */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background:
+      radial-gradient(ellipse 800px 400px at 20% -10%, rgba(0,229,255,0.08), transparent),
+      radial-gradient(ellipse 800px 400px at 80% 110%, rgba(255,46,147,0.08), transparent);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  header {
+    position: relative;
+    z-index: 1;
+    padding: 18px 24px 14px;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--panel-border);
+  }
+
+  .brand {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 0.24em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .brand span {
+    color: var(--cyan);
+  }
+
+  .track-name {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--text-dim);
+    max-width: 50%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  main {
+    flex: 1;
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 24px;
+    min-height: 0;
+  }
+
+  #canvasWrap {
+    width: 100%;
+    height: 100%;
+    max-width: 1100px;
+    position: relative;
+  }
+
+  canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+
+  .idle-hint {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+    pointer-events: none;
+    transition: opacity 0.4s ease;
+  }
+
+  .idle-hint p {
+    font-family: var(--mono);
+    font-size: 12px;
+    letter-spacing: 0.14em;
+    color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  footer {
+    position: relative;
+    z-index: 1;
+    padding: 16px 24px 22px;
+    border-top: 1px solid var(--panel-border);
+  }
+
+  .controls {
+    max-width: 1100px;
+    margin: 0 auto;
+    display: flex;
+    align-items: center;
+    gap: 18px;
+  }
+
+  .btn {
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    color: var(--text);
+    border-radius: 10px;
+    cursor: pointer;
+    transition: border-color 0.2s ease, background 0.2s ease, transform 0.1s ease;
+    font-family: var(--sans);
+  }
+
+  .btn:hover { border-color: #333d6e; background: #141a36; }
+  .btn:active { transform: scale(0.96); }
+
+  #playBtn {
+    width: 46px;
+    height: 46px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    border-radius: 50%;
+    border-color: var(--cyan);
+    background: linear-gradient(135deg, rgba(0,229,255,0.15), rgba(255,46,147,0.1));
+  }
+
+  #playBtn svg { width: 16px; height: 16px; fill: var(--text); }
+
+  #uploadBtn {
+    padding: 11px 18px;
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+
+  .volume-group {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--text-dim);
+    flex-shrink: 0;
+  }
+
+  .volume-group svg { width: 16px; height: 16px; fill: var(--text-dim); }
+
+  input[type="range"] {
+    -webkit-appearance: none;
+    width: 90px;
+    height: 3px;
+    background: var(--panel-border);
+    border-radius: 2px;
+    outline: none;
+  }
+
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--cyan);
+    cursor: pointer;
+    box-shadow: 0 0 8px rgba(0,229,255,0.6);
+  }
+
+  .modes {
+    display: flex;
+    gap: 6px;
+    margin-left: auto;
+    background: var(--panel);
+    border: 1px solid var(--panel-border);
+    border-radius: 10px;
+    padding: 4px;
+    flex-shrink: 0;
+  }
+
+  .mode-btn {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 8px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+  }
+
+  .mode-btn.active {
+    background: linear-gradient(135deg, var(--cyan), var(--magenta));
+    color: #060815;
+    font-weight: 700;
+  }
+
+  .mode-btn:not(.active):hover { color: var(--text); }
+
+  #fileInput { display: none; }
+
+  @media (max-width: 640px) {
+    .track-name { display: none; }
+    .controls { gap: 10px; flex-wrap: wrap; }
+    .modes { order: 3; width: 100%; margin-left: 0; justify-content: space-between; }
+    .mode-btn { flex: 1; text-align: center; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">wave<span>form</span> · lab</div>
+  <div class="track-name" id="trackName">no track loaded</div>
+</header>
+
+<main>
+  <div id="canvasWrap">
+    <canvas id="canvas"></canvas>
+    <div class="idle-hint" id="idleHint">
+      <p>upload a track to begin</p>
+    </div>
+  </div>
+</main>
+
+<footer>
+  <div class="controls">
+    <button class="btn" id="playBtn" disabled>
+      <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+      <svg id="pauseIcon" viewBox="0 0 24 24" style="display:none"><path d="M6 5h4v14H6zM14 5h4v14h-4z"/></svg>
+    </button>
+
+    <button class="btn" id="uploadBtn">Choose Audio</button>
+    <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,.wma,audio/mpeg,audio/mp4,audio/x-m4a">
+
+    <div class="volume-group">
+      <svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+      <input type="range" id="volumeSlider" min="0" max="1" step="0.01" value="0.8">
+    </div>
+
+    <div class="modes">
+      <button class="mode-btn active" data-mode="bars">Bars</button>
+      <button class="mode-btn" data-mode="wave">Wave</button>
+      <button class="mode-btn" data-mode="radial">Radial</button>
+    </div>
+  </div>
+</footer>
+
+<audio id="audio" crossorigin="anonymous"></audio>
+
+<script>
+(() => {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const wrap = document.getElementById('canvasWrap');
+  const audio = document.getElementById('audio');
+  const fileInput = document.getElementById('fileInput');
+  const uploadBtn = document.getElementById('uploadBtn');
+  const playBtn = document.getElementById('playBtn');
+  const playIcon = document.getElementById('playIcon');
+  const pauseIcon = document.getElementById('pauseIcon');
+  const volumeSlider = document.getElementById('volumeSlider');
+  const trackName = document.getElementById('trackName');
+  const idleHint = document.getElementById('idleHint');
+  const modeBtns = document.querySelectorAll('.mode-btn');
+
+  let mode = 'bars';
+  let audioCtx, analyser, source, dataArray, bufferLength;
+  let barHeights = [];
+  let isPlaying = false;
+  let hasTrack = false;
+  let dpr = window.devicePixelRatio || 1;
+  let t = 0; // idle animation clock
+
+  function resize() {
+    dpr = window.devicePixelRatio || 1;
+    const rect = wrap.getBoundingClientRect();
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  function setupAudioGraph() {
+    if (audioCtx) return;
+    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 512;
+    analyser.smoothingTimeConstant = 0.82;
+    bufferLength = analyser.frequencyBinCount;
+    dataArray = new Uint8Array(bufferLength);
+    barHeights = new Array(bufferLength).fill(0);
+
+    source = audioCtx.createMediaElementSource(audio);
+    source.connect(analyser);
+    analyser.connect(audioCtx.destination);
+  }
+
+  // ---- File handling ----
+  uploadBtn.addEventListener('click', () => fileInput.click());
+
+  fileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const url = URL.createObjectURL(file);
+    audio.src = url;
+    trackName.textContent = file.name;
+    hasTrack = true;
+    idleHint.style.opacity = '0';
+    playBtn.disabled = false;
+    setupAudioGraph();
+    audio.play().then(() => {
+      isPlaying = true;
+      updatePlayIcon();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    }).catch(() => {});
+  });
+
+  // ---- Playback controls ----
+  playBtn.addEventListener('click', () => {
+    if (!hasTrack) return;
+    if (audioCtx && audioCtx.state === 'suspended') audioCtx.resume();
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play();
+    }
+  });
+
+  audio.addEventListener('play', () => { isPlaying = true; updatePlayIcon(); });
+  audio.addEventListener('pause', () => { isPlaying = false; updatePlayIcon(); });
+  audio.addEventListener('ended', () => { isPlaying = false; updatePlayIcon(); });
+
+  function updatePlayIcon() {
+    playIcon.style.display = isPlaying ? 'none' : 'block';
+    pauseIcon.style.display = isPlaying ? 'block' : 'none';
+  }
+
+  volumeSlider.addEventListener('input', (e) => {
+    audio.volume = parseFloat(e.target.value);
+  });
+  audio.volume = 0.8;
+
+  // ---- Mode switching ----
+  modeBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      modeBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      mode = btn.dataset.mode;
+    });
+  });
+
+  // ---- Drawing helpers ----
+  function getSize() {
+    const rect = wrap.getBoundingClientRect();
+    return { w: rect.width, h: rect.height };
+  }
+
+  function drawBars() {
+    const { w, h } = getSize();
+    ctx.clearRect(0, 0, w, h);
+
+    analyser.getByteFrequencyData(dataArray);
+
+    const barCount = 64;
+    const step = Math.floor(bufferLength / barCount);
+    const gap = 3;
+    const barWidth = (w - gap * (barCount - 1)) / barCount;
+
+    for (let i = 0; i < barCount; i++) {
+      let sum = 0;
+      for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+      const avg = sum / step;
+      const targetH = (avg / 255) * h * 0.85;
+
+      barHeights[i] = barHeights[i] * 0.72 + targetH * 0.28;
+      const bh = Math.max(2, barHeights[i]);
+
+      const x = i * (barWidth + gap);
+      const y = h - bh;
+
+      const grad = ctx.createLinearGradient(0, h, 0, 0);
+      grad.addColorStop(0, '#00e5ff');
+      grad.addColorStop(1, '#ff2e93');
+      ctx.fillStyle = grad;
+      ctx.shadowColor = 'rgba(0,229,255,0.35)';
+      ctx.shadowBlur = 12;
+      roundRectTop(ctx, x, y, barWidth, bh, 3);
+      ctx.fill();
+    }
+    ctx.shadowBlur = 0;
+  }
+
+  function roundRectTop(c, x, y, w, h, r) {
+    c.beginPath();
+    c.moveTo(x, y + h);
+    c.lineTo(x, y + r);
+    c.quadraticCurveTo(x, y, x + r, y);
+    c.lineTo(x + w - r, y);
+    c.quadraticCurveTo(x + w, y, x + w, y + r);
+    c.lineTo(x + w, y + h);
+    c.closePath();
+  }
+
+  function drawWave() {
+    const { w, h } = getSize();
+    ctx.clearRect(0, 0, w, h);
+    analyser.getByteTimeDomainData(dataArray);
+
+    ctx.lineWidth = 2.5;
+    ctx.strokeStyle = '#00e5ff';
+    ctx.shadowColor = 'rgba(0,229,255,0.5)';
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+
+    const sliceWidth = w / bufferLength;
+    let x = 0;
+    for (let i = 0; i < bufferLength; i++) {
+      const v = dataArray[i] / 128.0;
+      const y = (v * h) / 2;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      x += sliceWidth;
+    }
+    ctx.stroke();
+
+    // mirrored magenta echo, offset + faded
+    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = 'rgba(255,46,147,0.5)';
+    ctx.shadowColor = 'rgba(255,46,147,0.4)';
+    ctx.shadowBlur = 10;
+    ctx.beginPath();
+    x = 0;
+    for (let i = 0; i < bufferLength; i++) {
+      const v = dataArray[i] / 128.0;
+      const y = h - (v * h) / 2;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      x += sliceWidth;
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  function drawRadial() {
+    const { w, h } = getSize();
+    ctx.clearRect(0, 0, w, h);
+    analyser.getByteFrequencyData(dataArray);
+
+    const cx = w / 2, cy = h / 2;
+    const baseR = Math.min(w, h) * 0.16;
+    const barCount = 96;
+    const step = Math.floor(bufferLength / barCount);
+
+    // core glow
+    const coreGrad = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR);
+    coreGrad.addColorStop(0, 'rgba(0,229,255,0.25)');
+    coreGrad.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = coreGrad;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+    ctx.fill();
+
+    for (let i = 0; i < barCount; i++) {
+      let sum = 0;
+      for (let j = 0; j < step; j++) sum += dataArray[i * step + j];
+      const avg = sum / step;
+      const targetLen = (avg / 255) * Math.min(w, h) * 0.32;
+
+      barHeights[i] = barHeights[i] * 0.7 + targetLen * 0.3;
+      const len = Math.max(2, barHeights[i]);
+
+      const angle = (i / barCount) * Math.PI * 2 - Math.PI / 2;
+      const x1 = cx + Math.cos(angle) * baseR;
+      const y1 = cy + Math.sin(angle) * baseR;
+      const x2 = cx + Math.cos(angle) * (baseR + len);
+      const y2 = cy + Math.sin(angle) * (baseR + len);
+
+      const t = i / barCount;
+      ctx.strokeStyle = t < 0.5
+        ? lerpColor('#00e5ff', '#ff2e93', t * 2)
+        : lerpColor('#ff2e93', '#00e5ff', (t - 0.5) * 2);
+      ctx.lineWidth = 3;
+      ctx.lineCap = 'round';
+      ctx.shadowColor = 'rgba(0,229,255,0.3)';
+      ctx.shadowBlur = 8;
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // thin outline ring
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.arc(cx, cy, baseR, 0, Math.PI * 2);
+    ctx.stroke();
+  }
+
+  function lerpColor(a, b, amt) {
+    const ah = parseInt(a.slice(1), 16), bh = parseInt(b.slice(1), 16);
+    const ar = (ah >> 16) & 255, ag = (ah >> 8) & 255, ab = ah & 255;
+    const br = (bh >> 16) & 255, bg = (bh >> 8) & 255, bb = bh & 255;
+    const rr = Math.round(ar + (br - ar) * amt);
+    const rg = Math.round(ag + (bg - ag) * amt);
+    const rb = Math.round(ab + (bb - ab) * amt);
+    return `rgb(${rr},${rg},${rb})`;
+  }
+
+  // ---- Idle ambient animation (no track loaded / paused) ----
+  function drawIdle() {
+    const { w, h } = getSize();
+    ctx.clearRect(0, 0, w, h);
+    t += 0.015;
+
+    const barCount = 64;
+    const gap = 3;
+    const barWidth = (w - gap * (barCount - 1)) / barCount;
+
+    for (let i = 0; i < barCount; i++) {
+      const wobble = Math.sin(t * 2 + i * 0.35) * 0.5 + 0.5;
+      const bh = 4 + wobble * h * 0.06;
+      const x = i * (barWidth + gap);
+      const y = h - bh;
+
+      ctx.fillStyle = 'rgba(107, 115, 153, 0.35)';
+      roundRectTop(ctx, x, y, barWidth, bh, 3);
+      ctx.fill();
+    }
+  }
+
+  // ---- Main loop ----
+  function tick() {
+    requestAnimationFrame(tick);
+
+    if (hasTrack && analyser) {
+      if (mode === 'bars') drawBars();
+      else if (mode === 'wave') drawWave();
+      else if (mode === 'radial') drawRadial();
+    } else {
+      drawIdle();
+    }
+  }
+  tick();
+})();
+</script>
+
+</body>
+</html>
