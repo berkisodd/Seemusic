@@ -1429,7 +1429,7 @@
       const z = sliceZ(s);
       const front = s === n - 1;
       const alpha = 0.15 + 0.85 * Math.pow(t, 1.5);
-      const lw = (DIST / zc0);          // nearer slices draw thicker
+      const lw = Math.min(1.8, DIST / zc0);  // nearer slices thicker, but capped
 
       // project the ridge and its baseline
       const P = [], B = [];
@@ -1573,7 +1573,16 @@
     requestAnimationFrame(tick);
     let dt = (now - last) / 1000; last = now;
     if (dt > 0.05) dt = 0.05; if (dt <= 0) dt = 0.016;
-    const s = size();
+    // iOS toolbar collapse/expand can resize layout without firing a resize
+    // event; if the backing store no longer matches, rebuild it (also wipes
+    // the stale strip that would otherwise linger at the bottom)
+    const rect = wrap.getBoundingClientRect();
+    const curDpr = window.devicePixelRatio || 1;
+    if (Math.round(rect.width * curDpr) !== canvas.width || Math.round(rect.height * curDpr) !== canvas.height) {
+      resize();
+      updateIndicator();
+    }
+    const s = { w: rect.width, h: rect.height };
     if (hasTrack && analyser) {
       if (is3D && THREED.has(mode)) draw3D(s.w, s.h, dt);
       else (dispatch[mode] || drawBars)(s.w, s.h, dt);
