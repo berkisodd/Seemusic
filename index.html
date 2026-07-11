@@ -87,7 +87,32 @@
     padding: 8px 22px; min-height: 0;
   }
   #canvasWrap { width: 100%; height: 100%; max-width: 1120px; position: relative; }
-  canvas { width: 100%; height: 100%; display: block; }
+  canvas {
+    width: 100%; height: 100%; display: block;
+    transform-origin: 50% 62%;
+    transition: transform 0.9s var(--spring);
+  }
+  canvas.tilt3d { transform: perspective(1100px) rotateX(26deg) scale(1.02); }
+
+  #btn3d {
+    position: absolute; top: 10px; right: 10px; z-index: 3;
+    display: none; align-items: center; justify-content: center;
+    width: 42px; height: 30px;
+    font-family: var(--mono); font-size: 11px; font-weight: 700; letter-spacing: 0.08em;
+    color: var(--text-dim);
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 9px; cursor: pointer;
+    transition: transform 0.35s var(--spring), color 0.25s, border-color 0.25s, background 0.3s, box-shadow 0.3s;
+  }
+  #btn3d.visible { display: flex; }
+  #btn3d:hover { color: var(--text); border-color: rgba(0,229,255,0.4); }
+  #btn3d:active { transform: scale(0.88); }
+  #btn3d.active {
+    color: #050710;
+    background: linear-gradient(135deg, var(--cyan), var(--magenta));
+    border-color: transparent;
+    box-shadow: 0 0 18px rgba(0,229,255,0.45);
+  }
 
   .idle-hint {
     position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -296,6 +321,7 @@
 <main>
   <div id="canvasWrap">
     <canvas id="canvas"></canvas>
+    <button id="btn3d" aria-label="Toggle 3D view">3D</button>
     <div class="idle-hint" id="idleHint"><p>upload a track to begin</p></div>
   </div>
 </main>
@@ -515,6 +541,7 @@
     audio.src = url; trackName.textContent = name;
     hasTrack = true; idleHint.style.opacity = '0'; playBtn.disabled = false;
     meterbar.classList.add('show');
+    sync3D();
     setupGraph();
     audio.play().then(() => { if (audioCtx.state === 'suspended') audioCtx.resume(); }).catch(() => {});
     renderRecent();
@@ -560,6 +587,7 @@
       bars.fill(0); peaks.fill(0); peakVel.fill(0); // prevent stale-height jump between modes
       spectroInit = false; // rebuild spectrogram buffer fresh
       const sz = size(); ctx.clearRect(0, 0, sz.w, sz.h); // no ghost frames in trail modes
+      hist = []; sync3D();
       updateIndicator();
       btn.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
     });
@@ -959,6 +987,102 @@
     normal();
   }
 
+  // ---------- 3D ridgeline waterfall ----------
+  const THREED = new Set(['bars', 'area', 'wave', 'spectro']);
+  const btn3d = $('btn3d');
+  let is3D = false;
+  const H_SLICES = 26, H_PTS = 80;
+  let hist = [];
+  let histClock = 0;
+
+  function sync3D() {
+    const ok = THREED.has(mode);
+    btn3d.classList.toggle('visible', ok && hasTrack);
+    const on = is3D && ok;
+    canvas.classList.toggle('tilt3d', on);
+    btn3d.classList.toggle('active', is3D);
+  }
+  btn3d.addEventListener('click', () => { is3D = !is3D; hist = []; sync3D(); });
+
+  function captureSlice() {
+    const slice = new Float32Array(H_PTS);
+    if (mode === 'wave') {
+      analyser.getByteTimeDomainData(timeData);
+      for (let i = 0; i < H_PTS; i++) {
+        const idx = Math.min(bufferLength - 1, Math.floor((i / H_PTS) * bufferLength));
+        let d = Math.abs((timeData[idx] - 128) / 128);
+        slice[i] = Math.pow(d, 0.7);
+      }
+    } else {
+      analyser.getByteFrequencyData(freqData);
+      buildTargets(H_PTS, 1);
+      slice.set(targets.subarray(0, H_PTS));
+    }
+    return slice;
+  }
+
+  function draw3D(w, h, dt) {
+    ctx.clearRect(0, 0, w, h);
+    // capture a new slice at ~30Hz so the landscape scrolls at a readable pace
+    histClock += dt;
+    if (histClock >= 0.033) {
+      histClock = 0;
+      hist.push(captureSlice());
+      if (hist.length > H_SLICES) hist.shift();
+    }
+    if (!hist.length) return;
+
+    const horizonY = h * 0.16, frontY = h * 0.88;
+    const n = hist.length;
+    for (let s = 0; s < n; s++) {
+      // s=0 oldest (back) → s=n-1 newest (front)
+      const t = n === 1 ? 1 : s / (n - 1);
+      const persp = Math.pow(t, 1.25);
+      const baseY = horizonY + (frontY - horizonY) * persp;
+      const amp = h * (0.08 + 0.34 * persp);
+      const scaleX = 0.55 + 0.45 * persp;
+      const x0 = (w - w * scaleX) / 2;
+      const slice = hist[s];
+
+      ctx.beginPath();
+      for (let i = 0; i < H_PTS; i++) {
+        const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
+        const y = baseY - slice[i] * amp;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      // occluding fill down to this ridge's baseline hides the ridges behind it
+      ctx.lineTo(x0 + w * scaleX, baseY + 2);
+      ctx.lineTo(x0, baseY + 2);
+      ctx.closePath();
+      ctx.fillStyle = `rgba(6,8,18,${0.55 + 0.4 * persp})`;
+      ctx.fill();
+
+      // ridge stroke: dim in the back, bright up front
+      ctx.beginPath();
+      for (let i = 0; i < H_PTS; i++) {
+        const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
+        const y = baseY - slice[i] * amp;
+        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+      }
+      const front = s === n - 1;
+      const g = ctx.createLinearGradient(x0, 0, x0 + w * scaleX, 0);
+      g.addColorStop(0, lerpColor(CY, MG, 0.15));
+      g.addColorStop(1, lerpColor(CY, MG, 0.9));
+      ctx.strokeStyle = g;
+      ctx.globalAlpha = 0.14 + 0.86 * Math.pow(persp, 2);
+      ctx.lineWidth = front ? 2.4 : 1.2;
+      ctx.shadowColor = 'rgba(0,229,255,0.5)';
+      ctx.shadowBlur = front ? 16 : 0;
+      ctx.stroke();
+      ctx.shadowBlur = 0;
+    }
+    ctx.globalAlpha = 1;
+    // horizon glow line
+    const hg = ctx.createLinearGradient(0, horizonY - 12, 0, horizonY + 12);
+    hg.addColorStop(0, 'rgba(0,229,255,0)'); hg.addColorStop(0.5, 'rgba(0,229,255,0.10)'); hg.addColorStop(1, 'rgba(0,229,255,0)');
+    ctx.fillStyle = hg; ctx.fillRect(0, horizonY - 12, w, 24);
+  }
+
   const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro };
 
   // ---------- studio metering ----------
@@ -1019,7 +1143,8 @@
     if (dt > 0.05) dt = 0.05; if (dt <= 0) dt = 0.016;
     const s = size();
     if (hasTrack && analyser) {
-      (dispatch[mode] || drawBars)(s.w, s.h, dt);
+      if (is3D && THREED.has(mode)) draw3D(s.w, s.h, dt);
+      else (dispatch[mode] || drawBars)(s.w, s.h, dt);
       updateMeters(dt);
     }
     else drawIdle(s.w, s.h, dt);
