@@ -371,6 +371,8 @@
       <button class="mode-btn" data-mode="rings">Rings</button>
       <button class="mode-btn" data-mode="tunnel">Tunnel</button>
       <button class="mode-btn" data-mode="spectro">Spectro</button>
+      <button class="mode-btn" data-mode="matrix">Matrix</button>
+      <button class="mode-btn" data-mode="galaxy">Galaxy</button>
     </div>
   </div>
 </footer>
@@ -584,7 +586,7 @@
       modeBtns.forEach(b => b.classList.remove('active'));
       btn.classList.add('active');
       mode = btn.dataset.mode;
-      bars.fill(0); peaks.fill(0); peakVel.fill(0); // prevent stale-height jump between modes
+      bars.fill(0); peaks.fill(0); peakVel.fill(0); matrixPeaks.fill(0); // prevent stale-height jump between modes
       spectroInit = false; // rebuild spectrogram buffer fresh
       const sz = size(); ctx.clearRect(0, 0, sz.w, sz.h); // no ghost frames in trail modes
       hist = []; sync3D();
@@ -631,27 +633,32 @@
     normal();
   }
 
+  const mirrorTop = [], mirrorBot = [];
   function drawMirror(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
     const mid = h / 2, count = 72, gap = 2, bw = (w - gap * (count - 1)) / count;
-    const cgap = 2; // small gap so halves don't fuse into a bright center line
+    const cgap = 2;
+    // precompute colors once — per-bar gradient allocation was the lag source
+    if (mirrorTop.length !== count) {
+      mirrorTop.length = 0; mirrorBot.length = 0;
+      for (let i = 0; i < count; i++) {
+        const t = i / count;
+        mirrorTop.push(lerpColor(CY, MG, t));
+        mirrorBot.push(lerpColor(MG, CY, t));
+      }
+    }
     buildTargets(count, mid * 0.8);
-    normal(); ctx.shadowColor = 'rgba(255,46,147,0.25)'; ctx.shadowBlur = 8;
     for (let i = 0; i < count; i++) {
       bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 30 : 9, dt);
-      const bh = Math.max(1.5, bars[i]), x = i * (bw + gap), t = i / count;
-      const g = ctx.createLinearGradient(0, mid - bh, 0, mid + bh);
-      g.addColorStop(0, lerpColor(CY, MG, t)); g.addColorStop(1, lerpColor(MG, CY, t));
-      ctx.fillStyle = g;
+      const bh = Math.max(1.5, bars[i]), x = i * (bw + gap);
+      ctx.fillStyle = mirrorTop[i];
       roundTop(x, mid - cgap - bh, bw, bh, 2); ctx.fill();
-      // faint reflection that fades toward the bottom
-      const rg = ctx.createLinearGradient(0, mid + cgap, 0, mid + cgap + bh);
-      rg.addColorStop(0, lerpColor(MG, CY, t)); rg.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.save(); ctx.globalAlpha = 0.16; ctx.fillStyle = rg;
-      roundTop(x, mid + cgap + bh, bw, -bh, 2); ctx.fill(); ctx.restore();
+      ctx.globalAlpha = 0.16;
+      ctx.fillStyle = mirrorBot[i];
+      roundTop(x, mid + cgap + bh, bw, -bh, 2); ctx.fill();
+      ctx.globalAlpha = 1;
     }
-    ctx.shadowBlur = 0;
   }
 
   function drawWave(w, h, dt) {
@@ -973,6 +980,82 @@
     ctx.fillStyle = g; ctx.fillRect(w - 40, 0, 40, h);
   }
 
+  // ---- matrix: LED cell grid, studio hardware look ----
+  const matrixPeaks = new Float32Array(64);
+  function drawMatrix(w, h, dt) {
+    ctx.clearRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    const COLS = 32, ROWS = 18;
+    const gapX = 4, gapY = 4;
+    const cw = (w - gapX * (COLS - 1)) / COLS;
+    const ch = (h - gapY * (ROWS - 1)) / ROWS;
+    buildTargets(COLS, 1);
+    for (let c = 0; c < COLS; c++) {
+      bars[c] = damp(bars[c], targets[c], targets[c] > bars[c] ? 30 : 8, dt);
+      const lit = Math.round(bars[c] * ROWS);
+      // falling peak dot per column
+      if (lit > matrixPeaks[c]) matrixPeaks[c] = lit;
+      else matrixPeaks[c] = Math.max(lit, matrixPeaks[c] - 14 * dt);
+      const peakRow = Math.round(matrixPeaks[c]);
+      const x = c * (cw + gapX);
+      for (let r = 0; r < ROWS; r++) {
+        const y = h - (r + 1) * ch - r * gapY;
+        const frac = r / ROWS;
+        if (r < lit) {
+          // cyan low → magenta mid → white hot
+          let col;
+          if (frac < 0.55) col = lerpColor(CY, MG, frac / 0.55);
+          else col = lerpColor(MG, [255, 255, 255], (frac - 0.55) / 0.45);
+          ctx.fillStyle = col;
+          ctx.globalAlpha = 0.92;
+        } else if (r === peakRow && peakRow > 0) {
+          ctx.fillStyle = '#ffffff';
+          ctx.globalAlpha = 0.9;
+        } else {
+          ctx.fillStyle = '#7a83ad';
+          ctx.globalAlpha = 0.07;
+        }
+        ctx.fillRect(x, y, cw, ch);
+      }
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  // ---- galaxy: rotating spiral of glowing points ----
+  function drawGalaxy(w, h, dt) {
+    normal();
+    ctx.fillStyle = 'rgba(6,8,18,0.32)'; ctx.fillRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    const cx = w / 2, cy = h / 2;
+    const b = bass(), e = energy();
+    bassEnv = damp(bassEnv, b, 14, dt);
+    energyEnv = damp(energyEnv, e, 8, dt);
+    spin += dt * (0.25 + energyEnv * 0.9);
+    const maxR = Math.min(w, h) * 0.46;
+    const ARMS = 3, PTS = 56;
+    add();
+    for (let a = 0; a < ARMS; a++) {
+      const armOff = (a / ARMS) * Math.PI * 2;
+      for (let i = 0; i < PTS; i++) {
+        const t = i / PTS;
+        const f = logSample(Math.floor(t * 60), 60) / 255;
+        const r = (0.12 + t * 0.88) * maxR * (1 + f * 0.22);
+        const ang = armOff + spin + t * 4.2; // spiral twist
+        const x = cx + Math.cos(ang) * r;
+        const y = cy + Math.sin(ang) * r * 0.72; // slight ellipse for depth
+        const sz = (1.2 + f * 5 + t * 1.5) * (1 + bassEnv * 0.4);
+        ctx.globalAlpha = 0.25 + f * 0.75;
+        const hueIdx = Math.min(sprites.length - 1, Math.floor(t * sprites.length));
+        ctx.drawImage(sprites[hueIdx], x - sz, y - sz, sz * 2, sz * 2);
+      }
+    }
+    // galactic core
+    const cr = 12 + bassEnv * 40;
+    ctx.globalAlpha = 0.85;
+    ctx.drawImage(sprites[0], cx - cr, cy - cr, cr * 2, cr * 2);
+    ctx.globalAlpha = 1; normal();
+  }
+
   function drawIdle(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     idleT += dt;
@@ -1057,24 +1140,81 @@
       ctx.fillStyle = `rgba(6,8,18,${0.55 + 0.4 * persp})`;
       ctx.fill();
 
-      // ridge stroke: dim in the back, bright up front
-      ctx.beginPath();
-      for (let i = 0; i < H_PTS; i++) {
-        const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
-        const y = baseY - slice[i] * amp;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      }
       const front = s === n - 1;
+      const alpha = 0.14 + 0.86 * Math.pow(persp, 2);
       const g = ctx.createLinearGradient(x0, 0, x0 + w * scaleX, 0);
       g.addColorStop(0, lerpColor(CY, MG, 0.15));
       g.addColorStop(1, lerpColor(CY, MG, 0.9));
-      ctx.strokeStyle = g;
-      ctx.globalAlpha = 0.14 + 0.86 * Math.pow(persp, 2);
-      ctx.lineWidth = front ? 2.4 : 1.2;
-      ctx.shadowColor = 'rgba(0,229,255,0.5)';
-      ctx.shadowBlur = front ? 16 : 0;
-      ctx.stroke();
-      ctx.shadowBlur = 0;
+
+      if (mode === 'bars') {
+        // field of 3D columns: one path of vertical segments, single stroke
+        ctx.beginPath();
+        const step = 2; // every 2nd point keeps it crisp and fast
+        for (let i = 0; i < H_PTS; i += step) {
+          const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
+          ctx.moveTo(x, baseY);
+          ctx.lineTo(x, baseY - slice[i] * amp);
+        }
+        ctx.strokeStyle = g;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = front ? 3 : 1.6 + persp;
+        ctx.lineCap = 'round';
+        ctx.stroke();
+      } else if (mode === 'area') {
+        // glowing filled terrain
+        ctx.beginPath();
+        for (let i = 0; i < H_PTS; i++) {
+          const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
+          const y = baseY - slice[i] * amp;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.lineTo(x0 + w * scaleX, baseY); ctx.lineTo(x0, baseY); ctx.closePath();
+        const tg = ctx.createLinearGradient(0, baseY - amp, 0, baseY);
+        tg.addColorStop(0, `rgba(0,229,255,${0.35 * persp})`);
+        tg.addColorStop(1, `rgba(255,46,147,${0.06 * persp})`);
+        ctx.globalAlpha = alpha;
+        ctx.fillStyle = tg; ctx.fill();
+        ctx.strokeStyle = '#8ff2ff'; ctx.lineWidth = front ? 2.2 : 1;
+        ctx.stroke();
+      } else if (mode === 'wave') {
+        // smooth flowing curves, magenta-led palette
+        ctx.beginPath();
+        for (let i = 0; i < H_PTS - 1; i++) {
+          const x1 = x0 + (i / (H_PTS - 1)) * w * scaleX, y1 = baseY - slice[i] * amp;
+          const x2 = x0 + ((i + 1) / (H_PTS - 1)) * w * scaleX, y2 = baseY - slice[i + 1] * amp;
+          if (i === 0) ctx.moveTo(x1, y1);
+          ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
+        }
+        const wg = ctx.createLinearGradient(x0, 0, x0 + w * scaleX, 0);
+        wg.addColorStop(0, '#ff2e93'); wg.addColorStop(0.5, '#c86bff'); wg.addColorStop(1, '#00e5ff');
+        ctx.strokeStyle = wg;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = front ? 2.6 : 1.2;
+        if (front) { ctx.shadowColor = 'rgba(255,46,147,0.6)'; ctx.shadowBlur = 14; }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      } else {
+        // spectro: heat-color each ridge by its loudness so the landscape ages through the ramp
+        let avg = 0;
+        for (let i = 0; i < H_PTS; i++) avg += slice[i];
+        avg /= H_PTS;
+        let col;
+        if (avg < 0.2) col = lerpColor([30, 50, 90], CY, avg / 0.2);
+        else if (avg < 0.45) col = lerpColor(CY, MG, (avg - 0.2) / 0.25);
+        else col = lerpColor(MG, [255, 255, 255], Math.min(1, (avg - 0.45) / 0.3));
+        ctx.beginPath();
+        for (let i = 0; i < H_PTS; i++) {
+          const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
+          const y = baseY - slice[i] * amp;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        }
+        ctx.strokeStyle = col;
+        ctx.globalAlpha = alpha;
+        ctx.lineWidth = front ? 2.4 : 1.2;
+        if (front) { ctx.shadowColor = col; ctx.shadowBlur = 14; }
+        ctx.stroke();
+        ctx.shadowBlur = 0;
+      }
     }
     ctx.globalAlpha = 1;
     // horizon glow line
@@ -1083,7 +1223,7 @@
     ctx.fillStyle = hg; ctx.fillRect(0, horizonY - 12, w, 24);
   }
 
-  const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro };
+  const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro, matrix: drawMatrix, galaxy: drawGalaxy };
 
   // ---------- studio metering ----------
   const meterbar = $('meterbar'), meterFill = $('meterFill'), meterPeak = $('meterPeak');
