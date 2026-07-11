@@ -1513,6 +1513,25 @@
       }
     }
     ctx.globalAlpha = 1;
+
+    // ground fog: at low angles every column base converges into the ground
+    // band and turns to mush — fade that region out using the plane's actual
+    // projected extent this frame
+    const corners = [
+      proj(-W3 / 2, 0, -Z3 / 2), proj(W3 / 2, 0, -Z3 / 2),
+      proj(-W3 / 2, 0, Z3 / 2), proj(W3 / 2, 0, Z3 / 2)
+    ];
+    let gy0 = Infinity, gy1 = -Infinity;
+    for (const c of corners) { gy0 = Math.min(gy0, c[1]); gy1 = Math.max(gy1, c[1]); }
+    gy0 = Math.max(0, Math.min(h, gy0)); gy1 = Math.max(0, Math.min(h, gy1));
+    if (gy1 - gy0 > 4) {
+      const fog = ctx.createLinearGradient(0, gy0, 0, gy1);
+      fog.addColorStop(0, 'rgba(6,8,18,0)');
+      fog.addColorStop(0.55, 'rgba(6,8,18,0.35)');
+      fog.addColorStop(1, 'rgba(6,8,18,0.92)');
+      ctx.fillStyle = fog;
+      ctx.fillRect(0, gy0, w, gy1 - gy0);
+    }
   }
 
   const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro, matrix: drawMatrix, galaxy: drawGalaxy };
