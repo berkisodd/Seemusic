@@ -588,7 +588,10 @@
       mode = btn.dataset.mode;
       bars.fill(0); peaks.fill(0); peakVel.fill(0); matrixPeaks.fill(0); // prevent stale-height jump between modes
       spectroInit = false; // rebuild spectrogram buffer fresh
-      const sz = size(); ctx.clearRect(0, 0, sz.w, sz.h); // no ghost frames in trail modes
+      // full-bitmap wipe (transform-proof) so no stale pixels survive a mode switch
+      ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.restore();
       hist = []; sync3D();
       updateIndicator();
       btn.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'smooth' });
@@ -914,7 +917,7 @@
   let tunnelZ = 0;
   function drawTunnel(w, h, dt) {
     normal();
-    ctx.fillStyle = 'rgba(6,8,18,0.4)'; ctx.fillRect(0, 0, w, h); // slight trail
+    ctx.fillStyle = 'rgba(6,8,18,0.5)'; ctx.fillRect(0, 0, w, h); // trail fade
     analyser.getByteFrequencyData(freqData);
     const cx = w / 2, cy = h / 2;
     const b = bass(), e = energy();
@@ -922,19 +925,19 @@
     energyEnv = damp(energyEnv, e, 8, dt);
     tunnelZ += dt * (0.6 + bassEnv * 2.2); // fly faster on bass
     spin += dt * (0.15 + energyEnv * 0.4);
-    add();
-    const RINGS = 14, SEGS = 28, maxR = Math.min(w, h) * 0.85;
+    // normal blending: brightness is capped at the stroke color, so no blowout
+    const RINGS = 14, SEGS = 28, maxR = Math.min(w, h) * 0.78;
     for (let ri = 0; ri < RINGS; ri++) {
       let z = (ri / RINGS + tunnelZ) % 1;           // 0 far → 1 near
       const persp = z * z;                           // ease for depth feel
       const r = 12 + persp * maxR;
-      const alpha = Math.min(1, z * 1.6) * 0.55;
+      const alpha = Math.min(1, z * 1.6) * 0.6;
       ctx.lineWidth = 1 + persp * 3;
       for (let si = 0; si < SEGS; si++) {
         const f = (logSample(si, SEGS) / 255);
         const a0 = (si / SEGS) * Math.PI * 2 + spin;
         const a1 = ((si + 0.8) / SEGS) * Math.PI * 2 + spin;
-        const bump = 1 + f * 0.35 * z;
+        const bump = 1 + f * 0.22 * z; // bounded so rings stay on screen
         ctx.globalAlpha = alpha * (0.35 + f * 0.65);
         ctx.strokeStyle = lerpColor(CY, MG, si / SEGS);
         ctx.beginPath();
@@ -942,7 +945,7 @@
         ctx.stroke();
       }
     }
-    ctx.globalAlpha = 1; normal();
+    ctx.globalAlpha = 1;
   }
 
   // ---- spectro: scrolling spectrogram ----
