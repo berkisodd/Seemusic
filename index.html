@@ -1119,16 +1119,13 @@
     canvas.classList.toggle('grabbable', on);
     if (on && !camOn) {
       camOn = true;
-      canvas.style.transition = 'none';      // JS drives the transform per frame
-      camRX = 0; camRY = 0;                  // spring in from flat
+      camRX = 2; camRY = 0;                  // spring the camera up from ground level
       camTX = CAM_DEF_X; camTY = 0;
       orbitHint.classList.add('show');
       clearTimeout(hintTimer);
       hintTimer = setTimeout(() => orbitHint.classList.remove('show'), 2600);
     } else if (!on && camOn) {
       camOn = false;
-      canvas.style.transition = '';          // spring back to flat via CSS
-      canvas.style.transform = '';
       orbitHint.classList.remove('show');
     }
   }
@@ -1140,8 +1137,8 @@
   let camOn = false, camRX = 0, camRY = 0, camTX = CAM_DEF_X, camTY = 0;
   let camDrag = false, camLX = 0, camLY = 0, camVX = 0, camVY = 0, lastTapT = 0;
   let hintTimer = 0;
-  const clampX = v => Math.max(4, Math.min(58, v));
-  const clampY = v => Math.max(-45, Math.min(45, v));
+  const clampX = v => Math.max(4, Math.min(70, v));
+  const clampY = v => Math.max(-60, Math.min(60, v));
 
   wrap.addEventListener('pointerdown', (e) => {
     if (!camOn || e.target === btn3d) return;
@@ -1176,8 +1173,6 @@
     if (!camOn) return;
     camRX = damp(camRX, camTX, 9, dt);
     camRY = damp(camRY, camTY, 9, dt);
-    canvas.style.transform =
-      `perspective(1100px) rotateX(${camRX.toFixed(2)}deg) rotateY(${camRY.toFixed(2)}deg) scale(1.02)`;
   }
 
   function captureSlice() {
@@ -1199,121 +1194,144 @@
 
   function draw3D(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
-    // capture a new slice at ~30Hz so the landscape scrolls at a readable pace
     histClock += dt;
     if (histClock >= 0.033) {
       histClock = 0;
       hist.push(captureSlice());
       if (hist.length > H_SLICES) hist.shift();
     }
-    if (!hist.length) return;
+    if (hist.length < 2) return;
 
-    const horizonY = h * 0.16, frontY = h * 0.88;
+    // ---- true perspective camera ----
+    const yaw = camRY * Math.PI / 180, pit = camRX * Math.PI / 180;
+    const cyw = Math.cos(yaw), syw = Math.sin(yaw);
+    const cp = Math.cos(pit), sp = Math.sin(pit);
+    const DIST = 3.0, F = Math.min(w, h) * 1.3;
+    const scx = w / 2, scy = h * 0.5;
+    const W3 = 2.6, Z3 = 2.6, AMP = 1.05, YOFF = 0.45;
+
+    // world (x right, y up, z depth) → screen via yaw, pitch, perspective divide
+    function proj(x, y, z) {
+      y -= YOFF;
+      const x1 = x * cyw - z * syw, z1 = x * syw + z * cyw;
+      const y2 = y * cp - z1 * sp, z2 = y * sp + z1 * cp;
+      const zc = z2 + DIST;
+      const sc = F / zc;
+      return [scx + x1 * sc, scy - y2 * sc, zc];
+    }
+
     const n = hist.length;
-    for (let s = 0; s < n; s++) {
-      // s=0 oldest (back) → s=n-1 newest (front)
-      const t = n === 1 ? 1 : s / (n - 1);
-      const persp = Math.pow(t, 1.25);
-      const baseY = horizonY + (frontY - horizonY) * persp;
-      const amp = h * (0.08 + 0.34 * persp);
-      const scaleX = 0.55 + 0.45 * persp;
-      const x0 = (w - w * scaleX) / 2;
+    const sliceZ = s => (0.5 - s / (n - 1)) * Z3; // newest (s=n-1) nearest the camera
+
+    // ---- ground grid for depth reference ----
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(0,229,255,0.10)';
+    for (let gi = 0; gi <= 6; gi++) {
+      const gz = (gi / 6 - 0.5) * Z3;
+      const a = proj(-W3 / 2, 0, gz), b = proj(W3 / 2, 0, gz);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+    for (let gi = 0; gi <= 8; gi++) {
+      const gx = (gi / 8 - 0.5) * W3;
+      const a = proj(gx, 0, -Z3 / 2), b = proj(gx, 0, Z3 / 2);
+      ctx.beginPath(); ctx.moveTo(a[0], a[1]); ctx.lineTo(b[0], b[1]); ctx.stroke();
+    }
+
+    // ---- painter's sort: farthest slice first under the current rotation ----
+    const order = [];
+    for (let s = 0; s < n; s++) order.push([s, proj(0, 0, sliceZ(s))[2]]);
+    order.sort((a, b) => b[1] - a[1]);
+
+    for (const [s, zc0] of order) {
       const slice = hist[s];
-
-      ctx.beginPath();
-      for (let i = 0; i < H_PTS; i++) {
-        const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
-        const y = baseY - slice[i] * amp;
-        i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-      }
-      // occluding fill down to this ridge's baseline hides the ridges behind it
-      ctx.lineTo(x0 + w * scaleX, baseY + 2);
-      ctx.lineTo(x0, baseY + 2);
-      ctx.closePath();
-      ctx.fillStyle = `rgba(6,8,18,${0.55 + 0.4 * persp})`;
-      ctx.fill();
-
+      const t = s / (n - 1);           // recency 0..1
+      const z = sliceZ(s);
       const front = s === n - 1;
-      const alpha = 0.14 + 0.86 * Math.pow(persp, 2);
-      const g = ctx.createLinearGradient(x0, 0, x0 + w * scaleX, 0);
-      g.addColorStop(0, lerpColor(CY, MG, 0.15));
-      g.addColorStop(1, lerpColor(CY, MG, 0.9));
+      const alpha = 0.15 + 0.85 * Math.pow(t, 1.5);
+      const lw = (DIST / zc0);          // nearer slices draw thicker
+
+      // project the ridge and its baseline
+      const P = [], B = [];
+      for (let i = 0; i < H_PTS; i++) {
+        const x = (i / (H_PTS - 1) - 0.5) * W3;
+        P.push(proj(x, slice[i] * AMP, z));
+        B.push(proj(x, 0, z));
+      }
 
       if (mode === 'bars') {
-        // field of 3D columns: one path of vertical segments, single stroke
+        // columns rising from the ground plane
+        const g = ctx.createLinearGradient(P[0][0], 0, P[H_PTS - 1][0], 0);
+        g.addColorStop(0, lerpColor(CY, MG, 0.15));
+        g.addColorStop(1, lerpColor(CY, MG, 0.9));
         ctx.beginPath();
-        const step = 2; // every 2nd point keeps it crisp and fast
-        for (let i = 0; i < H_PTS; i += step) {
-          const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
-          ctx.moveTo(x, baseY);
-          ctx.lineTo(x, baseY - slice[i] * amp);
+        for (let i = 0; i < H_PTS; i += 2) {
+          ctx.moveTo(B[i][0], B[i][1]);
+          ctx.lineTo(P[i][0], P[i][1]);
         }
         ctx.strokeStyle = g;
         ctx.globalAlpha = alpha;
-        ctx.lineWidth = front ? 3 : 1.6 + persp;
+        ctx.lineWidth = (front ? 2.6 : 1.6) * lw;
         ctx.lineCap = 'round';
         ctx.stroke();
-      } else if (mode === 'area') {
-        // glowing filled terrain
-        ctx.beginPath();
-        for (let i = 0; i < H_PTS; i++) {
-          const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
-          const y = baseY - slice[i] * amp;
-          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
-        }
-        ctx.lineTo(x0 + w * scaleX, baseY); ctx.lineTo(x0, baseY); ctx.closePath();
-        const tg = ctx.createLinearGradient(0, baseY - amp, 0, baseY);
-        tg.addColorStop(0, `rgba(0,229,255,${0.35 * persp})`);
-        tg.addColorStop(1, `rgba(255,46,147,${0.06 * persp})`);
-        ctx.globalAlpha = alpha;
-        ctx.fillStyle = tg; ctx.fill();
-        ctx.strokeStyle = '#8ff2ff'; ctx.lineWidth = front ? 2.2 : 1;
-        ctx.stroke();
-      } else if (mode === 'wave') {
-        // smooth flowing curves, magenta-led palette
-        ctx.beginPath();
-        for (let i = 0; i < H_PTS - 1; i++) {
-          const x1 = x0 + (i / (H_PTS - 1)) * w * scaleX, y1 = baseY - slice[i] * amp;
-          const x2 = x0 + ((i + 1) / (H_PTS - 1)) * w * scaleX, y2 = baseY - slice[i + 1] * amp;
-          if (i === 0) ctx.moveTo(x1, y1);
-          ctx.quadraticCurveTo(x1, y1, (x1 + x2) / 2, (y1 + y2) / 2);
-        }
-        const wg = ctx.createLinearGradient(x0, 0, x0 + w * scaleX, 0);
-        wg.addColorStop(0, '#ff2e93'); wg.addColorStop(0.5, '#c86bff'); wg.addColorStop(1, '#00e5ff');
-        ctx.strokeStyle = wg;
-        ctx.globalAlpha = alpha;
-        ctx.lineWidth = front ? 2.6 : 1.2;
-        if (front) { ctx.shadowColor = 'rgba(255,46,147,0.6)'; ctx.shadowBlur = 14; }
-        ctx.stroke();
-        ctx.shadowBlur = 0;
       } else {
-        // spectro: heat-color each ridge by its loudness so the landscape ages through the ramp
-        let avg = 0;
-        for (let i = 0; i < H_PTS; i++) avg += slice[i];
-        avg /= H_PTS;
-        let col;
-        if (avg < 0.2) col = lerpColor([30, 50, 90], CY, avg / 0.2);
-        else if (avg < 0.45) col = lerpColor(CY, MG, (avg - 0.2) / 0.25);
-        else col = lerpColor(MG, [255, 255, 255], Math.min(1, (avg - 0.45) / 0.3));
+        // occluding dark fill between ridge and baseline hides what's behind
         ctx.beginPath();
-        for (let i = 0; i < H_PTS; i++) {
-          const x = x0 + (i / (H_PTS - 1)) * w * scaleX;
-          const y = baseY - slice[i] * amp;
-          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        ctx.moveTo(P[0][0], P[0][1]);
+        for (let i = 1; i < H_PTS; i++) ctx.lineTo(P[i][0], P[i][1]);
+        for (let i = H_PTS - 1; i >= 0; i--) ctx.lineTo(B[i][0], B[i][1]);
+        ctx.closePath();
+        ctx.globalAlpha = 1;
+        ctx.fillStyle = 'rgba(6,8,18,0.82)';
+        ctx.fill();
+
+        if (mode === 'area') {
+          const tg = ctx.createLinearGradient(0, P[0][1] - 40, 0, B[0][1]);
+          tg.addColorStop(0, 'rgba(0,229,255,0.4)');
+          tg.addColorStop(1, 'rgba(255,46,147,0.05)');
+          ctx.globalAlpha = alpha;
+          ctx.fillStyle = tg; ctx.fill();
+          ctx.beginPath();
+          ctx.moveTo(P[0][0], P[0][1]);
+          for (let i = 1; i < H_PTS; i++) ctx.lineTo(P[i][0], P[i][1]);
+          ctx.strokeStyle = '#8ff2ff';
+          ctx.lineWidth = (front ? 2 : 1) * lw;
+          ctx.stroke();
+        } else if (mode === 'wave') {
+          ctx.beginPath();
+          for (let i = 0; i < H_PTS - 1; i++) {
+            if (i === 0) ctx.moveTo(P[0][0], P[0][1]);
+            ctx.quadraticCurveTo(P[i][0], P[i][1], (P[i][0] + P[i + 1][0]) / 2, (P[i][1] + P[i + 1][1]) / 2);
+          }
+          const wg = ctx.createLinearGradient(P[0][0], 0, P[H_PTS - 1][0], 0);
+          wg.addColorStop(0, '#ff2e93'); wg.addColorStop(0.5, '#c86bff'); wg.addColorStop(1, '#00e5ff');
+          ctx.strokeStyle = wg;
+          ctx.globalAlpha = alpha;
+          ctx.lineWidth = (front ? 2.4 : 1.1) * lw;
+          if (front) { ctx.shadowColor = 'rgba(255,46,147,0.6)'; ctx.shadowBlur = 12; }
+          ctx.stroke();
+          ctx.shadowBlur = 0;
+        } else {
+          // spectro: heat-color by loudness
+          let avg = 0;
+          for (let i = 0; i < H_PTS; i++) avg += slice[i];
+          avg /= H_PTS;
+          let col;
+          if (avg < 0.2) col = lerpColor([30, 50, 90], CY, avg / 0.2);
+          else if (avg < 0.45) col = lerpColor(CY, MG, (avg - 0.2) / 0.25);
+          else col = lerpColor(MG, [255, 255, 255], Math.min(1, (avg - 0.45) / 0.3));
+          ctx.beginPath();
+          ctx.moveTo(P[0][0], P[0][1]);
+          for (let i = 1; i < H_PTS; i++) ctx.lineTo(P[i][0], P[i][1]);
+          ctx.strokeStyle = col;
+          ctx.globalAlpha = alpha;
+          ctx.lineWidth = (front ? 2.2 : 1.1) * lw;
+          if (front) { ctx.shadowColor = col; ctx.shadowBlur = 12; }
+          ctx.stroke();
+          ctx.shadowBlur = 0;
         }
-        ctx.strokeStyle = col;
-        ctx.globalAlpha = alpha;
-        ctx.lineWidth = front ? 2.4 : 1.2;
-        if (front) { ctx.shadowColor = col; ctx.shadowBlur = 14; }
-        ctx.stroke();
-        ctx.shadowBlur = 0;
       }
     }
     ctx.globalAlpha = 1;
-    // horizon glow line
-    const hg = ctx.createLinearGradient(0, horizonY - 12, 0, horizonY + 12);
-    hg.addColorStop(0, 'rgba(0,229,255,0)'); hg.addColorStop(0.5, 'rgba(0,229,255,0.10)'); hg.addColorStop(1, 'rgba(0,229,255,0)');
-    ctx.fillStyle = hg; ctx.fillRect(0, horizonY - 12, w, 24);
   }
 
   const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro, matrix: drawMatrix, galaxy: drawGalaxy };
