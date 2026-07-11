@@ -22,7 +22,17 @@
 
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 
-  html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--sans); overflow: hidden; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    overflow: hidden;
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    overscroll-behavior: none;
+  }
   body { display: flex; flex-direction: column; }
 
   body::before {
@@ -86,13 +96,27 @@
     display: flex; align-items: center; justify-content: center;
     padding: 8px 22px; min-height: 0;
   }
-  #canvasWrap { width: 100%; height: 100%; max-width: 1120px; position: relative; }
+  #canvasWrap { width: 100%; height: 100%; max-width: 1120px; position: relative; touch-action: none; }
   canvas {
     width: 100%; height: 100%; display: block;
     transform-origin: 50% 62%;
     transition: transform 0.9s var(--spring);
   }
-  canvas.tilt3d { transform: perspective(1100px) rotateX(26deg) scale(1.02); }
+  canvas.grabbable { cursor: grab; }
+  canvas.grabbing { cursor: grabbing; }
+
+  .orbit-hint {
+    position: absolute; bottom: 10px; left: 50%;
+    transform: translateX(-50%);
+    font-family: var(--mono); font-size: 10px; letter-spacing: 0.14em;
+    text-transform: uppercase; color: var(--text-dim);
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 999px; padding: 6px 14px;
+    pointer-events: none; opacity: 0;
+    transition: opacity 0.5s var(--ease);
+    z-index: 3;
+  }
+  .orbit-hint.show { opacity: 1; }
 
   #btn3d {
     position: absolute; top: 10px; right: 10px; z-index: 3;
@@ -322,6 +346,7 @@
   <div id="canvasWrap">
     <canvas id="canvas"></canvas>
     <button id="btn3d" aria-label="Toggle 3D view">3D</button>
+    <div class="orbit-hint" id="orbitHint">drag to orbit · double-tap to reset</div>
     <div class="idle-hint" id="idleHint"><p>upload a track to begin</p></div>
   </div>
 </main>
@@ -598,6 +623,11 @@
     });
   });
   bannerClose.addEventListener('click', () => banner.classList.remove('show'));
+
+  // screen lock: no page scroll / rubber-banding; mode tabs, chips, and sliders stay swipeable
+  document.addEventListener('touchmove', (e) => {
+    if (!e.target.closest('.modes, .recent-row, input[type="range"]')) e.preventDefault();
+  }, { passive: false });
 
   // ---------- helpers ----------
   const CY = [0, 229, 255], MG = [255, 46, 147];
@@ -1085,10 +1115,70 @@
     const ok = THREED.has(mode);
     btn3d.classList.toggle('visible', ok && hasTrack);
     const on = is3D && ok;
-    canvas.classList.toggle('tilt3d', on);
     btn3d.classList.toggle('active', is3D);
+    canvas.classList.toggle('grabbable', on);
+    if (on && !camOn) {
+      camOn = true;
+      canvas.style.transition = 'none';      // JS drives the transform per frame
+      camRX = 0; camRY = 0;                  // spring in from flat
+      camTX = CAM_DEF_X; camTY = 0;
+      orbitHint.classList.add('show');
+      clearTimeout(hintTimer);
+      hintTimer = setTimeout(() => orbitHint.classList.remove('show'), 2600);
+    } else if (!on && camOn) {
+      camOn = false;
+      canvas.style.transition = '';          // spring back to flat via CSS
+      canvas.style.transform = '';
+      orbitHint.classList.remove('show');
+    }
   }
   btn3d.addEventListener('click', () => { is3D = !is3D; hist = []; sync3D(); });
+
+  // ---- orbit camera (drag to look around in 3D) ----
+  const orbitHint = $('orbitHint');
+  const CAM_DEF_X = 26;
+  let camOn = false, camRX = 0, camRY = 0, camTX = CAM_DEF_X, camTY = 0;
+  let camDrag = false, camLX = 0, camLY = 0, camVX = 0, camVY = 0, lastTapT = 0;
+  let hintTimer = 0;
+  const clampX = v => Math.max(4, Math.min(58, v));
+  const clampY = v => Math.max(-45, Math.min(45, v));
+
+  wrap.addEventListener('pointerdown', (e) => {
+    if (!camOn || e.target === btn3d) return;
+    camDrag = true; camLX = e.clientX; camLY = e.clientY; camVX = 0; camVY = 0;
+    canvas.classList.add('grabbing');
+    try { wrap.setPointerCapture(e.pointerId); } catch (err) {}
+    // double-tap reset
+    const now = performance.now();
+    if (now - lastTapT < 300) { camTX = CAM_DEF_X; camTY = 0; }
+    lastTapT = now;
+  });
+  wrap.addEventListener('pointermove', (e) => {
+    if (!camDrag) return;
+    const dx = e.clientX - camLX, dy = e.clientY - camLY;
+    camLX = e.clientX; camLY = e.clientY;
+    camVX = dx; camVY = dy;
+    camTY = clampY(camTY + dx * 0.22);   // horizontal drag → spin
+    camTX = clampX(camTX + dy * 0.28);   // vertical drag → tilt
+  });
+  const endDrag = () => {
+    if (!camDrag) return;
+    camDrag = false;
+    canvas.classList.remove('grabbing');
+    // fling with the release velocity
+    camTY = clampY(camTY + camVX * 3.2);
+    camTX = clampX(camTX + camVY * 3.2);
+  };
+  wrap.addEventListener('pointerup', endDrag);
+  wrap.addEventListener('pointercancel', endDrag);
+
+  function updateCamera(dt) {
+    if (!camOn) return;
+    camRX = damp(camRX, camTX, 9, dt);
+    camRY = damp(camRY, camTY, 9, dt);
+    canvas.style.transform =
+      `perspective(1100px) rotateX(${camRX.toFixed(2)}deg) rotateY(${camRY.toFixed(2)}deg) scale(1.02)`;
+  }
 
   function captureSlice() {
     const slice = new Float32Array(H_PTS);
@@ -1288,6 +1378,7 @@
     if (hasTrack && analyser) {
       if (is3D && THREED.has(mode)) draw3D(s.w, s.h, dt);
       else (dispatch[mode] || drawBars)(s.w, s.h, dt);
+      updateCamera(dt);
       updateMeters(dt);
     }
     else drawIdle(s.w, s.h, dt);
