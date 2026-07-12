@@ -701,6 +701,7 @@
       <button class="mode-btn" data-mode="strings">Strings</button>
       <button class="mode-btn" data-mode="city">City</button>
       <button class="mode-btn" data-mode="scope">Scope</button>
+      <button class="mode-btn" data-mode="cruise">Cruise</button>
     </div>
   </div>
 </footer>
@@ -756,6 +757,9 @@
   let sweepX = 0;                                  // area light sweep
   const ripples = [];                              // ripple mode rings
   let cityLayout = null, cityKey = '';             // city mode building cache
+  // cruise mode
+  let roadT = 0, shake = 0, dropEnv = 0, truckBob = 0, truckKey = '';
+  const cruiseCars = [], clouds = [], puffs = [];
 
   // frame-rate-independent exponential damping
   function damp(cur, target, rate, dt) { return cur + (target - cur) * (1 - Math.exp(-rate * dt)); }
@@ -1086,7 +1090,8 @@
     modeBtns.forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     mode = m;
-    bars.fill(0); peaks.fill(0); peakVel.fill(0); matrixPeaks.fill(0); ripples.length = 0; // prevent stale state between modes
+    bars.fill(0); peaks.fill(0); peakVel.fill(0); matrixPeaks.fill(0); ripples.length = 0;
+    cruiseCars.length = 0; puffs.length = 0; shake = 0; // prevent stale state between modes
     spectroInit = false; // rebuild spectrogram buffer fresh
     // full-bitmap wipe (transform-proof) so no stale pixels survive a mode switch
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -2012,6 +2017,258 @@
     ctx.shadowBlur = 0; ctx.globalAlpha = 1;
   }
 
+  // ---- cruise: truck driving across the Windows XP "Bliss" hills ----
+  // rolling terrain surface: two stacked sines, scrolled by distance driven
+  function hillSurf(x, scroll, base, amp, k) {
+    const p = (x + scroll) * k;
+    return base - amp * (0.62 * Math.sin(p) + 0.38 * Math.sin(p * 2.17 + 1.3));
+  }
+
+  function drawCruise(w, h, dt) {
+    analyser.getByteFrequencyData(freqData);
+    const b = bass(), e = energy();
+    bassEnv = damp(bassEnv, b, 14, dt);
+    energyEnv = damp(energyEnv, e, 8, dt);
+    bassAvg = damp(bassAvg, b, 1.2, dt);
+    beatFlash = Math.max(0, beatFlash - dt * 3.5);
+
+    // big drops shake the whole scene
+    if (b > bassAvg * 1.45 && b > 0.42 && beatFlash < 0.15) {
+      beatFlash = 1;
+      shake = Math.min(1, shake + 0.8);
+      // exhaust blast on the drop
+      for (let i = 0; i < 3; i++) puffs.push({ x: 0, y: 0, r: 3 + Math.random() * 3, a: 0.75, vx: 10 + Math.random() * 20, vy: -30 - Math.random() * 25 });
+    }
+    shake = Math.max(0, shake - dt * 2.2);
+    dropEnv = damp(dropEnv, shake, 20, dt);
+
+    const speed = (0.5 + energyEnv * 1.6 + dropEnv * 1.1) * w * 0.35;
+    roadT += dt * speed;
+
+    ctx.save();
+    if (shake > 0.002) {
+      const m = shake * shake * Math.min(w, h) * 0.035;
+      ctx.translate((Math.random() - 0.5) * m, (Math.random() - 0.5) * m);
+      ctx.rotate((Math.random() - 0.5) * shake * 0.012);
+    }
+
+    // ---- XP sky (deliberately not theme-linked — Bliss IS the look) ----
+    const sky = ctx.createLinearGradient(0, 0, 0, h * 0.75);
+    sky.addColorStop(0, 'rgb(46,110,206)');
+    sky.addColorStop(0.6, 'rgb(112,168,229)');
+    sky.addColorStop(1, 'rgb(176,214,242)');
+    ctx.fillStyle = sky; ctx.fillRect(-40, -40, w + 80, h * 0.75 + 40);
+
+    // ---- puffy clouds, drifting with the music ----
+    const key = Math.round(w) + 'x' + Math.round(h);
+    if (truckKey !== key) {
+      truckKey = key;
+      clouds.length = 0;
+      let rng = 7;
+      const rand = () => { rng = (rng * 1103515245 + 12345) % 2147483648; return rng / 2147483648; };
+      for (let i = 0; i < 6; i++) {
+        clouds.push({ x: rand() * w * 1.3, y: h * (0.06 + rand() * 0.28), s: 0.6 + rand() * 0.9, v: 0.25 + rand() * 0.4 });
+      }
+      cruiseCars.length = 0; puffs.length = 0;
+    }
+    for (const c of clouds) {
+      c.x -= dt * speed * 0.06 * c.v;
+      if (c.x < -w * 0.25) { c.x = w * 1.2; c.y = h * (0.06 + Math.random() * 0.28); }
+      const cs = c.s * Math.min(w, h) * 0.001;
+      const bright = 0.88 + beatFlash * 0.12;                // clouds catch the drop flash
+      ctx.fillStyle = `rgba(255,255,255,${bright})`;
+      const cw = 90 * cs * 100, ch = 26 * cs * 100;
+      // three overlapping puffs make one cloud
+      ctx.beginPath();
+      ctx.ellipse(c.x, c.y, cw * 0.34, ch * 0.5, 0, 0, Math.PI * 2);
+      ctx.ellipse(c.x + cw * 0.24, c.y - ch * 0.28, cw * 0.28, ch * 0.44, 0, 0, Math.PI * 2);
+      ctx.ellipse(c.x + cw * 0.46, c.y + ch * 0.06, cw * 0.26, ch * 0.4, 0, 0, Math.PI * 2);
+      ctx.fill();
+      // flat-bottom shading, very soft
+      ctx.fillStyle = 'rgba(150,185,220,0.25)';
+      ctx.beginPath();
+      ctx.ellipse(c.x + cw * 0.2, c.y + ch * 0.36, cw * 0.4, ch * 0.16, 0, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ---- three parallax hill layers, breathing gently with the bass ----
+    const breathe = 1 + bassEnv * 0.12;
+    const layers = [
+      { base: h * 0.66, amp: h * 0.035 * breathe, k: 3.6 / w, sc: 0.22, top: 'rgb(132,198,96)',  bot: 'rgb(96,168,66)'  },
+      { base: h * 0.76, amp: h * 0.05  * breathe, k: 3.1 / w, sc: 0.5,  top: 'rgb(96,176,58)',   bot: 'rgb(70,146,40)'  },
+      { base: h * 0.9,  amp: h * 0.065 * breathe, k: 2.6 / w, sc: 1.0,  top: 'rgb(74,156,40)',   bot: 'rgb(46,116,26)'  }
+    ];
+    for (const L of layers) {
+      const g = ctx.createLinearGradient(0, L.base - L.amp * 1.4, 0, h);
+      g.addColorStop(0, L.top); g.addColorStop(1, L.bot);
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(-40, h + 40);
+      for (let x = -40; x <= w + 40; x += 8) {
+        ctx.lineTo(x, hillSurf(x, roadT * L.sc, L.base, L.amp, L.k));
+      }
+      ctx.lineTo(w + 40, h + 40);
+      ctx.closePath(); ctx.fill();
+    }
+    const mid = layers[1], near = layers[2];
+
+    // ---- ambient cars on the middle hill (scenery traffic) ----
+    if (cruiseCars.length < 3 && Math.random() < 0.008 + energyEnv * 0.012) {
+      cruiseCars.push({ x: w + 80, v: 0.3 + Math.random() * 0.35, col: Math.random() });
+    }
+    for (let i = cruiseCars.length - 1; i >= 0; i--) {
+      const c = cruiseCars[i];
+      c.x -= dt * speed * c.v;
+      if (c.x < -100) { cruiseCars.splice(i, 1); continue; }
+      const y = hillSurf(c.x, roadT * mid.sc, mid.base, mid.amp, mid.k);
+      const y2 = hillSurf(c.x + 8, roadT * mid.sc, mid.base, mid.amp, mid.k);
+      drawCar(c.x, y, 0.55, lerpRGB(CY, MG, c.col), Math.atan2(y2 - y, 8));
+    }
+
+    // ---- exhaust puffs (spawned on beats + engine idle) ----
+    truckBob += dt * (8 + energyEnv * 10);
+    const truckX = w * 0.32;
+    const ty = hillSurf(truckX, roadT, near.base, near.amp, near.k);
+    const ty2 = hillSurf(truckX + 12, roadT, near.base, near.amp, near.k);
+    const tilt = Math.atan2(ty2 - ty, 12);                   // truck follows the slope
+    const bob = Math.sin(truckBob) * (1 + bassEnv * 2.2);
+    const tScale = 0.85;
+    if (Math.random() < 0.06 + bassEnv * 0.1) {
+      puffs.push({ x: 0, y: 0, r: 2 + Math.random() * 2, a: 0.5, vx: 6 + Math.random() * 10, vy: -18 - Math.random() * 14 });
+    }
+    // puff positions are relative to the exhaust stack, computed in truck space
+    const stackX = truckX + 30 * tScale, stackY = ty + bob - 35 * tScale;
+    for (let i = puffs.length - 1; i >= 0; i--) {
+      const p = puffs[i];
+      p.x += p.vx * dt; p.y += p.vy * dt;
+      p.r += dt * 9; p.a -= dt * 0.55;
+      if (p.a <= 0) { puffs.splice(i, 1); continue; }
+      ctx.fillStyle = `rgba(235,240,248,${p.a})`;
+      ctx.beginPath(); ctx.arc(stackX + p.x, stackY + p.y, p.r, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // ---- the truck, tilted to the terrain ----
+    ctx.save();
+    ctx.translate(truckX, ty + bob);
+    ctx.rotate(tilt);
+    drawTruck(0, 0, tScale);
+    ctx.restore();
+
+    ctx.restore();
+
+    // drop flash, outside the shake transform
+    if (beatFlash > 0.35) {
+      ctx.fillStyle = `rgba(255,255,255,${(beatFlash - 0.35) * 0.12})`;
+      ctx.fillRect(0, 0, w, h);
+    }
+  }
+
+  // a simple car seen from the side, tilted to its hill
+  function drawCar(x, y, s, col, tilt) {
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(tilt || 0);
+    const bw = 54 * s, bh = 15 * s, roofH = 10 * s;
+    // grounding shadow
+    ctx.fillStyle = 'rgba(20,50,15,0.3)';
+    ctx.beginPath(); ctx.ellipse(bw / 2, 2.5, bw * 0.55, 3.5 * s, 0, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = `rgb(${col[0]},${col[1]},${col[2]})`;
+    ctx.globalAlpha = 0.92;
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(bw, 0);
+    ctx.lineTo(bw, -bh);
+    ctx.lineTo(bw * 0.72, -bh);
+    ctx.lineTo(bw * 0.6, -bh - roofH);
+    ctx.lineTo(bw * 0.3, -bh - roofH);
+    ctx.lineTo(bw * 0.16, -bh);
+    ctx.lineTo(0, -bh);
+    ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+    ctx.fillStyle = 'rgba(8,10,20,0.95)';
+    ctx.beginPath(); ctx.arc(bw * 0.22, 0, 4.5 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.arc(bw * 0.8, 0, 4.5 * s, 0, Math.PI * 2); ctx.fill();
+    ctx.restore();
+  }
+
+  // the hero truck: cab + trailer, side view, driving left; origin at front wheel ground point
+  function drawTruck(x, y, s) {
+    const cabW = 34 * s, cabH = 26 * s;
+    const trW = 88 * s, trH = 34 * s;
+    const wheelR = 6 * s;
+    const tx = x + cabW + 2 * s;
+
+    // grounding shadow under the whole rig
+    ctx.fillStyle = 'rgba(20,50,15,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(x + (cabW + trW) / 2, y + 3 * s, (cabW + trW) * 0.58, 4.5 * s, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // trailer
+    ctx.fillStyle = 'rgba(240,244,252,0.96)';
+    ctx.fillRect(tx, y - trH, trW, trH);
+    ctx.strokeStyle = 'rgba(110,125,165,0.45)'; ctx.lineWidth = 1;
+    for (let i = 1; i < 6; i++) {
+      const rx = tx + (i / 6) * trW;
+      ctx.beginPath(); ctx.moveTo(rx, y - trH + 2 * s); ctx.lineTo(rx, y - 3 * s); ctx.stroke();
+    }
+    // underglow pulsing with bass (theme-colored — the truck is ours, the scenery is XP's)
+    add();
+    const ug = ctx.createLinearGradient(tx, 0, tx + trW, 0);
+    ug.addColorStop(0, `rgba(${CY[0]},${CY[1]},${CY[2]},${0.3 + bassEnv * 0.6})`);
+    ug.addColorStop(1, `rgba(${MG[0]},${MG[1]},${MG[2]},${0.3 + bassEnv * 0.6})`);
+    ctx.fillStyle = ug;
+    ctx.fillRect(tx, y - 2.5 * s, trW, 2.5 * s);
+    normal();
+
+    // cab
+    ctx.fillStyle = `rgb(${MG[0]},${MG[1]},${MG[2]})`;
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+    ctx.lineTo(x, y - cabH * 0.55);
+    ctx.lineTo(x + 5 * s, y - cabH);
+    ctx.lineTo(x + cabW, y - cabH);
+    ctx.lineTo(x + cabW, y);
+    ctx.closePath(); ctx.fill();
+    ctx.fillStyle = `rgba(${CY[0]},${CY[1]},${CY[2]},0.55)`;
+    ctx.beginPath();
+    ctx.moveTo(x + 3 * s, y - cabH * 0.62);
+    ctx.lineTo(x + 7 * s, y - cabH * 0.93);
+    ctx.lineTo(x + cabW * 0.62, y - cabH * 0.93);
+    ctx.lineTo(x + cabW * 0.62, y - cabH * 0.62);
+    ctx.closePath(); ctx.fill();
+    // exhaust stack
+    ctx.fillStyle = 'rgba(200,210,240,0.8)';
+    ctx.fillRect(x + cabW - 4 * s, y - cabH - 9 * s, 3 * s, 9 * s);
+
+    // wheels — with rotating spokes so they visibly spin
+    // (negative: driving left = wheels roll counter-clockwise)
+    const wheelAng = -roadT * 0.06;
+    [x + 9 * s, tx + trW * 0.62, tx + trW * 0.82].forEach(wx => {
+      ctx.fillStyle = 'rgba(8,10,20,0.95)';
+      ctx.beginPath(); ctx.arc(wx, y, wheelR, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(150,165,200,0.85)'; ctx.lineWidth = 1.3 * s;
+      for (let sp = 0; sp < 3; sp++) {
+        const a = wheelAng + sp * Math.PI / 3;
+        ctx.beginPath();
+        ctx.moveTo(wx - Math.cos(a) * wheelR * 0.7, y - Math.sin(a) * wheelR * 0.7);
+        ctx.lineTo(wx + Math.cos(a) * wheelR * 0.7, y + Math.sin(a) * wheelR * 0.7);
+        ctx.stroke();
+      }
+      ctx.fillStyle = 'rgba(120,135,175,0.9)';
+      ctx.beginPath(); ctx.arc(wx, y, wheelR * 0.25, 0, Math.PI * 2); ctx.fill();
+    });
+
+    // headlight + tail light
+    add();
+    ctx.globalAlpha = 0.8 + bassEnv * 0.2;
+    ctx.drawImage(sprites[0], x - 9 * s, y - cabH * 0.62, 12 * s, 12 * s);
+    ctx.fillStyle = `rgba(${MG[0]},${MG[1]},${MG[2]},0.95)`;
+    ctx.fillRect(tx + trW - 2 * s, y - trH * 0.85, 3 * s, 4 * s);
+    ctx.globalAlpha = 1;
+    normal();
+  }
+
   function drawIdle(w, h, dt) {
     ctx.clearRect(0, 0, w, h);
     idleT += dt;
@@ -2122,7 +2379,7 @@
     { m: 'bars' }, { m: 'mirror' }, { m: 'wave' }, { m: 'area' },
     { m: 'radial' }, { m: 'orb' }, { m: 'particles' }, { m: 'rings' },
     { m: 'tunnel' }, { m: 'spectro' }, { m: 'matrix' }, { m: 'galaxy' },
-    { m: 'aurora' }, { m: 'ripple' }, { m: 'strings' }, { m: 'city' }, { m: 'scope' },
+    { m: 'aurora' }, { m: 'ripple' }, { m: 'strings' }, { m: 'city' }, { m: 'scope' }, { m: 'cruise' },
     { m: 'bars', d3: true }, { m: 'area', d3: true }
   ];
 
@@ -2338,7 +2595,7 @@
     }
   }
 
-  const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro, matrix: drawMatrix, galaxy: drawGalaxy, aurora: drawAurora, ripple: drawRipple, strings: drawStrings, city: drawCity, scope: drawScope };
+  const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro, matrix: drawMatrix, galaxy: drawGalaxy, aurora: drawAurora, ripple: drawRipple, strings: drawStrings, city: drawCity, scope: drawScope, cruise: drawCruise };
 
   // ---------- studio metering ----------
   const meterbar = $('meterbar'), meterFill = $('meterFill'), meterPeak = $('meterPeak');
