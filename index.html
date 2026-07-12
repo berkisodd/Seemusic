@@ -1925,18 +1925,18 @@
         x += bw2 + 2;
       }
     }
-    // synthwave sun with slice cuts
-    const sunR = Math.min(w, h) * 0.21 * (1 + bassEnv * 0.05);
-    const sunY = horizon - sunR * 0.3;
+    // moon with slice cuts — up in the sky, clear of the skyline
+    const sunR = Math.min(w, h) * 0.15 * (1 + bassEnv * 0.05);
+    const sunX = w * 0.76, sunY = h * 0.16;
     ctx.save();
-    ctx.beginPath(); ctx.arc(w / 2, sunY, sunR, 0, Math.PI * 2); ctx.clip();
+    ctx.beginPath(); ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2); ctx.clip();
     const sg = ctx.createLinearGradient(0, sunY - sunR, 0, sunY + sunR);
     sg.addColorStop(0, lerpColor(CY, MG, 0.1)); sg.addColorStop(1, lerpColor(CY, MG, 0.95));
-    ctx.fillStyle = sg; ctx.fillRect(w / 2 - sunR, sunY - sunR, sunR * 2, sunR * 2);
+    ctx.fillStyle = sg; ctx.fillRect(sunX - sunR, sunY - sunR, sunR * 2, sunR * 2);
     ctx.fillStyle = fade(1);
     for (let i = 0; i < 5; i++) {
       const yy = sunY + sunR * 0.1 + i * sunR * 0.17;
-      ctx.fillRect(w / 2 - sunR, yy, sunR * 2, 1.5 + i * 1.5);
+      ctx.fillRect(sunX - sunR, yy, sunR * 2, 1.5 + i * 1.5);
     }
     ctx.restore();
     // buildings, each tied to a spectrum band
