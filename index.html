@@ -1978,10 +1978,10 @@
     ctx.fillStyle = hg; ctx.fillRect(0, horizon - 8, w, 16);
   }
 
-  // ---- scope: green phosphor vectorscope, long-persistence scribble ----
+  // ---- scope: green vectorscope, live trace only ----
   function drawScope(w, h, dt) {
     normal();
-    ctx.fillStyle = fade(0.055); ctx.fillRect(0, 0, w, h);  // slow phosphor decay → trails scribble up
+    ctx.clearRect(0, 0, w, h);                              // fresh every frame — no trails
     analyser.getByteTimeDomainData(timeData);
     const cx = w / 2, cy = h / 2;
     energyEnv = damp(energyEnv, energy(), 8, dt);
@@ -1990,8 +1990,7 @@
     const R = Math.min(w, h) * (0.32 + bassEnv * 0.12);
     // signature phosphor green — deliberately NOT theme-linked, that's the identity
     const G = 'rgb(58,232,72)';
-    // three passes at different delays + slight rotations weave the lattice;
-    // normal blending (not additive) so dense areas cap at solid green, no white blowout
+    // three passes at different delays + slight rotations weave the lattice
     const offs = [Math.floor(bufferLength / 4), Math.floor(bufferLength / 3), Math.floor(bufferLength / 6)];
     for (let p = 0; p < offs.length; p++) {
       const off = offs[p];
@@ -2001,9 +2000,9 @@
       const jx = Math.sin(spin * 2.6 + p * 7) * R * 0.02;   // hand-drawn jitter
       const jy = Math.cos(spin * 3.1 + p * 5) * R * 0.02;
       ctx.strokeStyle = G;
-      ctx.lineWidth = p === 0 ? 1.5 : 0.9;
-      ctx.globalAlpha = (p === 0 ? 0.55 : 0.3) * (0.45 + energyEnv * 0.55);
-      if (p === 0) { ctx.shadowColor = 'rgba(58,232,72,0.7)'; ctx.shadowBlur = 8; }
+      ctx.lineWidth = p === 0 ? 1.8 : 1.1;
+      ctx.globalAlpha = (p === 0 ? 0.9 : 0.45) * (0.55 + energyEnv * 0.45);
+      if (p === 0) { ctx.shadowColor = 'rgba(58,232,72,0.75)'; ctx.shadowBlur = 10; }
       else ctx.shadowBlur = 0;
       ctx.beginPath();
       for (let i = 0; i < N; i += 2) {
