@@ -79,6 +79,42 @@
     border-radius: 10px; padding: 3px;
   }
 
+  #fsBtn {
+    width: 34px; height: 34px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 10px; color: var(--text-dim); cursor: pointer;
+    transition: transform 0.35s var(--spring), color 0.2s, border-color 0.2s;
+  }
+  #fsBtn svg { width: 16px; height: 16px; fill: currentColor; }
+  #fsBtn:hover { color: var(--text); border-color: rgba(0,229,255,0.4); }
+  #fsBtn:active { transform: scale(0.85); }
+
+  /* ---- immersive / fullscreen mode ---- */
+  body.immersive header,
+  body.immersive footer {
+    display: none;
+  }
+  body.immersive main {
+    position: fixed; inset: 0; width: 100%; height: 100%;
+    padding: 0;
+  }
+  body.immersive #canvasWrap { max-width: none; }
+
+  .fs-exit {
+    position: absolute; top: 12px; right: 12px; z-index: 5;
+    width: 38px; height: 38px;
+    display: none; align-items: center; justify-content: center;
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 50%; color: var(--text); cursor: pointer;
+    backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    opacity: 0; transition: opacity 0.4s var(--ease), transform 0.35s var(--spring);
+  }
+  .fs-exit svg { width: 17px; height: 17px; fill: currentColor; }
+  body.immersive .fs-exit { display: flex; }
+  body.immersive .fs-exit.show { opacity: 1; }
+  .fs-exit:active { transform: scale(0.85); }
+
   /* ---- theme swatches ---- */
   .themes {
     display: flex; gap: 5px; flex-shrink: 0; margin-left: auto;
@@ -544,6 +580,9 @@
       <svg viewBox="0 0 24 24"><path d="M15.5 1h-8C6.12 1 5 2.12 5 3.5v17C5 21.88 6.12 23 7.5 23h8c1.38 0 2.5-1.12 2.5-2.5v-17C18 2.12 16.88 1 15.5 1zm-4 21c-.83 0-1.5-.67-1.5-1.5s.67-1.5 1.5-1.5 1.5.67 1.5 1.5-.67 1.5-1.5 1.5zm4.5-4H8V4h8v14z"/></svg>
     </button>
   </div>
+  <button id="fsBtn" aria-label="Fullscreen">
+    <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+  </button>
 </header>
 
 <div class="banner" id="banner">
@@ -566,6 +605,9 @@
     <div class="orbit-hint" id="orbitHint">drag to orbit · double-tap to reset</div>
     <div class="demo-pill" id="demoPill">demo tour · tap any mode to take over</div>
     <div class="idle-hint" id="idleHint"><p>upload a track to begin</p></div>
+    <button class="fs-exit" id="fsExit" aria-label="Exit fullscreen">
+      <svg viewBox="0 0 24 24"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
+    </button>
   </div>
 </main>
 
@@ -629,6 +671,11 @@
       <button class="mode-btn" data-mode="spectro">Spectro</button>
       <button class="mode-btn" data-mode="matrix">Matrix</button>
       <button class="mode-btn" data-mode="galaxy">Galaxy</button>
+      <button class="mode-btn" data-mode="aurora">Aurora</button>
+      <button class="mode-btn" data-mode="ripple">Ripple</button>
+      <button class="mode-btn" data-mode="strings">Strings</button>
+      <button class="mode-btn" data-mode="city">City</button>
+      <button class="mode-btn" data-mode="scope">Scope</button>
     </div>
   </div>
 </footer>
@@ -678,6 +725,9 @@
   const scratch = new Float32Array(MAXB);
   const orbPts = new Float32Array(180);
   let bassEnv = 0, energyEnv = 0, bassAvg = 0, beatFlash = 0, spin = 0, idleT = 0;
+  let sweepX = 0;                                  // area light sweep
+  const ripples = [];                              // ripple mode rings
+  let cityLayout = null, cityKey = '';             // city mode building cache
 
   // frame-rate-independent exponential damping
   function damp(cur, target, rate, dt) { return cur + (target - cur) * (1 - Math.exp(-rate * dt)); }
@@ -1008,7 +1058,7 @@
     modeBtns.forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     mode = m;
-    bars.fill(0); peaks.fill(0); peakVel.fill(0); matrixPeaks.fill(0); // prevent stale-height jump between modes
+    bars.fill(0); peaks.fill(0); peakVel.fill(0); matrixPeaks.fill(0); ripples.length = 0; // prevent stale state between modes
     spectroInit = false; // rebuild spectrogram buffer fresh
     // full-bitmap wipe (transform-proof) so no stale pixels survive a mode switch
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
@@ -1025,6 +1075,52 @@
     });
   });
   bannerClose.addEventListener('click', () => banner.classList.remove('show'));
+
+  // ---------- fullscreen / immersive mode ----------
+  const fsBtn = $('fsBtn'), fsExit = $('fsExit');
+  let immersive = false, fsHideTimer = 0;
+
+  function showExitBriefly() {
+    fsExit.classList.add('show');
+    clearTimeout(fsHideTimer);
+    fsHideTimer = setTimeout(() => fsExit.classList.remove('show'), 2400);
+  }
+
+  async function enterImmersive() {
+    immersive = true;
+    document.body.classList.add('immersive');
+    showExitBriefly();
+    // real Fullscreen API where supported (desktop / Android) — iOS Safari has
+    // no Fullscreen API for page elements, so this silently no-ops there and
+    // the CSS immersive mode above is what actually delivers the effect
+    const el = document.documentElement;
+    const req = el.requestFullscreen || el.webkitRequestFullscreen;
+    if (req) { try { await req.call(el); } catch (e) {} }
+    requestAnimationFrame(() => requestAnimationFrame(() => { resize(); drawMini(); }));
+  }
+  function exitImmersive() {
+    immersive = false;
+    document.body.classList.remove('immersive');
+    clearTimeout(fsHideTimer);
+    fsExit.classList.remove('show');
+    const isFs = document.fullscreenElement || document.webkitFullscreenElement;
+    if (isFs) {
+      const ex = document.exitFullscreen || document.webkitExitFullscreen;
+      if (ex) { try { ex.call(document); } catch (e) {} }
+    }
+    requestAnimationFrame(() => requestAnimationFrame(() => { resize(); drawMini(); }));
+  }
+  fsBtn.addEventListener('click', () => { immersive ? exitImmersive() : enterImmersive(); });
+  fsExit.addEventListener('click', exitImmersive);
+  // tapping the canvas in immersive mode reveals the exit button again
+  wrap.addEventListener('pointerdown', () => { if (immersive) showExitBriefly(); });
+  // keep in sync if the browser's own fullscreen is exited (desktop ESC key etc.)
+  document.addEventListener('fullscreenchange', () => {
+    if (!document.fullscreenElement && immersive) exitImmersive();
+  });
+  document.addEventListener('webkitfullscreenchange', () => {
+    if (!document.webkitFullscreenElement && immersive) exitImmersive();
+  });
 
   // ---- desktop / mobile layout toggle ----
   const layoutBtns = document.querySelectorAll('.layout-btn');
@@ -1124,21 +1220,38 @@
     ctx.clearRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
     const count = 64, gap = 3, bw = (w - gap * (count - 1)) / count;
-    buildTargets(count, h * 0.9);
+    const floorY = h * 0.86;                       // reserve a strip for the reflection
+    buildTargets(count, floorY * 0.92);
     add();
-    const grad = ctx.createLinearGradient(0, h, 0, 0);
+    const grad = ctx.createLinearGradient(0, floorY, 0, 0);
     grad.addColorStop(0, lerpColor(CY,MG,0)); grad.addColorStop(1, lerpColor(CY,MG,1));
     ctx.fillStyle = grad; ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},0.35)`; ctx.shadowBlur = 16;
     for (let i = 0; i < count; i++) {
       bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 34 : 9, dt);
       const bh = Math.max(2, bars[i]), x = i * (bw + gap);
-      roundTop(x, h - bh, bw, bh, 3); ctx.fill();
+      roundTop(x, floorY - bh, bw, bh, 3); ctx.fill();
       if (bh > peaks[i]) { peaks[i] = bh; peakVel[i] = 0; }
       else { peakVel[i] += h * 2.2 * dt; peaks[i] -= peakVel[i] * dt; }
       if (peaks[i] < 2) peaks[i] = 2;
     }
-    ctx.shadowBlur = 0; ctx.fillStyle = 'rgba(255,255,255,0.9)';
-    for (let i = 0; i < count; i++) ctx.fillRect(i * (bw + gap), h - peaks[i] - 3, bw, 2);
+    ctx.shadowBlur = 0;
+    // floor reflection: flipped bars, solid color, one fade overlay (cheap)
+    ctx.globalAlpha = 0.16;
+    for (let i = 0; i < count; i++) {
+      const bh = Math.max(2, bars[i]);
+      ctx.fillRect(i * (bw + gap), floorY + 2, bw, Math.min(bh * 0.5, h - floorY - 2));
+    }
+    ctx.globalAlpha = 1;
+    normal();
+    const fadeG = ctx.createLinearGradient(0, floorY, 0, h);
+    fadeG.addColorStop(0, fade(0.25)); fadeG.addColorStop(1, fade(1));
+    ctx.fillStyle = fadeG; ctx.fillRect(0, floorY + 2, w, h - floorY - 2);
+    // glowing floor line
+    ctx.fillStyle = `rgba(${CY[0]},${CY[1]},${CY[2]},0.35)`;
+    ctx.fillRect(0, floorY, w, 1.5);
+    add();
+    ctx.fillStyle = 'rgba(255,255,255,0.9)';
+    for (let i = 0; i < count; i++) ctx.fillRect(i * (bw + gap), floorY - peaks[i] - 3, bw, 2);
     normal();
   }
 
@@ -1167,7 +1280,18 @@
       ctx.fillStyle = mirrorBot[i];
       roundTop(x, mid + cgap + bh, bw, -bh, 2); ctx.fill();
       ctx.globalAlpha = 1;
+      // falling white-hot peak caps
+      if (bh > peaks[i]) { peaks[i] = bh; peakVel[i] = 0; }
+      else { peakVel[i] += mid * 2 * dt; peaks[i] -= peakVel[i] * dt; }
+      if (peaks[i] < 1.5) peaks[i] = 1.5;
+      ctx.fillStyle = 'rgba(255,255,255,0.85)';
+      ctx.fillRect(x, mid - cgap - peaks[i] - 2.5, bw, 1.8);
     }
+    // center seam glow
+    const seam = ctx.createLinearGradient(0, 0, w, 0);
+    seam.addColorStop(0, `rgba(${CY[0]},${CY[1]},${CY[2]},0.35)`);
+    seam.addColorStop(1, `rgba(${MG[0]},${MG[1]},${MG[2]},0.35)`);
+    ctx.fillStyle = seam; ctx.fillRect(0, mid - 0.75, w, 1.5);
   }
 
   function drawWave(w, h, dt) {
@@ -1200,11 +1324,16 @@
     g.addColorStop(0, `rgba(${CY[0]},${CY[1]},${CY[2]},0.10)`); g.addColorStop(0.5, 'rgba(120,80,220,0.06)'); g.addColorStop(1, `rgba(${MG[0]},${MG[1]},${MG[2]},0.10)`);
     ctx.fillStyle = g; ctx.fill();
     // mirror trace (dim)
-    ctx.globalAlpha = 0.4; ctx.lineWidth = 1.6; ctx.strokeStyle = '#ff2e93';
+    ctx.globalAlpha = 0.4; ctx.lineWidth = 1.6; ctx.strokeStyle = lerpColor(MG, [255,255,255], 0.1);
     ctx.shadowColor = `rgba(${MG[0]},${MG[1]},${MG[2]},0.5)`; ctx.shadowBlur = 14;
     trace(bot); ctx.stroke();
+    // echo ghost: same shape at reduced swing, adds depth
+    const ghost = top.map(p => ({ x: p.x, y: mid + (p.y - mid) * 0.55 }));
+    ctx.globalAlpha = 0.28; ctx.lineWidth = 1.4; ctx.shadowBlur = 0;
+    ctx.strokeStyle = lerpColor(CY, MG, 0.5);
+    trace(ghost); ctx.stroke();
     // main trace (bold)
-    ctx.globalAlpha = 1; ctx.lineWidth = 3; ctx.strokeStyle = '#4ff0ff';
+    ctx.globalAlpha = 1; ctx.lineWidth = 3; ctx.strokeStyle = lerpColor(CY, [255,255,255], 0.3);
     ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},0.7)`; ctx.shadowBlur = 18;
     trace(top); ctx.stroke();
     ctx.shadowBlur = 0; normal();
@@ -1230,8 +1359,19 @@
     };
     path(); ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
     const fill = ctx.createLinearGradient(0, 0, 0, h);
-    fill.addColorStop(0, 'rgba(0,229,255,0.5)'); fill.addColorStop(0.5, 'rgba(120,80,220,0.22)'); fill.addColorStop(1, 'rgba(255,46,147,0.03)');
+    fill.addColorStop(0, `rgba(${CY[0]},${CY[1]},${CY[2]},0.5)`); fill.addColorStop(0.5, `rgba(${Math.round((CY[0]+MG[0])/2)},${Math.round((CY[1]+MG[1])/2)},${Math.round((CY[2]+MG[2])/2)},0.22)`); fill.addColorStop(1, `rgba(${MG[0]},${MG[1]},${MG[2]},0.03)`);
     ctx.fillStyle = fill; ctx.fill();
+    // light sweep gliding across the terrain, clipped to the shape
+    sweepX = (sweepX + dt * w * 0.14) % (w * 1.4);
+    const sx = sweepX - w * 0.2;
+    ctx.save();
+    path(); ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath(); ctx.clip();
+    const sw = ctx.createLinearGradient(sx - w * 0.1, 0, sx + w * 0.1, 0);
+    sw.addColorStop(0, 'rgba(255,255,255,0)');
+    sw.addColorStop(0.5, 'rgba(255,255,255,0.14)');
+    sw.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = sw; ctx.fillRect(sx - w * 0.1, 0, w * 0.2, h);
+    ctx.restore();
     path(); ctx.strokeStyle = lerpColor(CY,[255,255,255],0.45); ctx.lineWidth = 2; ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},0.7)`; ctx.shadowBlur = 18; ctx.stroke();
     ctx.shadowBlur = 0; normal();
   }
@@ -1243,7 +1383,7 @@
     spin += dt * 0.15;
     add();
     const core = ctx.createRadialGradient(cx, cy, 0, cx, cy, baseR * 1.5);
-    core.addColorStop(0, 'rgba(0,229,255,0.3)'); core.addColorStop(1, 'rgba(0,229,255,0)');
+    core.addColorStop(0, `rgba(${CY[0]},${CY[1]},${CY[2]},0.3)`); core.addColorStop(1, `rgba(${CY[0]},${CY[1]},${CY[2]},0)`);
     ctx.fillStyle = core; ctx.beginPath(); ctx.arc(cx, cy, baseR * 1.5, 0, Math.PI * 2); ctx.fill();
     buildTargets(count, Math.min(w, h) * 0.34);
     ctx.lineCap = 'round';
@@ -1258,7 +1398,17 @@
       ctx.moveTo(cx + c * baseR, cy + sn * baseR);
       ctx.lineTo(cx + c * (baseR + len), cy + sn * (baseR + len)); ctx.stroke();
     }
-    ctx.shadowBlur = 0; normal();
+    ctx.shadowBlur = 0;
+    // bass halo: an outer ring that swells and brightens with the low end
+    bassEnv = damp(bassEnv, bass(), 12, dt);
+    if (bassEnv > 0.05) {
+      ctx.globalAlpha = Math.min(0.5, bassEnv * 0.7);
+      ctx.strokeStyle = lerpColor(MG, [255,255,255], 0.2);
+      ctx.lineWidth = 1.5 + bassEnv * 3;
+      ctx.beginPath(); ctx.arc(cx, cy, baseR * (1.15 + bassEnv * 0.55) + Math.min(w, h) * 0.34, 0, Math.PI * 2); ctx.stroke();
+      ctx.globalAlpha = 1;
+    }
+    normal();
     ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.arc(cx, cy, baseR, 0, Math.PI * 2); ctx.stroke();
   }
@@ -1520,6 +1670,9 @@
         } else if (r === peakRow && peakRow > 0) {
           ctx.fillStyle = '#ffffff';
           ctx.globalAlpha = 0.9;
+        } else if (r === peakRow - 1 && peakRow > 1 && r >= lit) {
+          ctx.fillStyle = '#ffffff';    // fading trail cell under the peak dot
+          ctx.globalAlpha = 0.28;
         } else {
           ctx.fillStyle = '#7a83ad';
           ctx.globalAlpha = 0.07;
@@ -1563,6 +1716,212 @@
     ctx.globalAlpha = 0.85;
     ctx.drawImage(sprites[0], cx - cr, cy - cr, cr * 2, cr * 2);
     ctx.globalAlpha = 1; normal();
+  }
+
+  // ---- aurora: flowing light curtains hanging from above ----
+  function drawAurora(w, h, dt) {
+    normal();
+    ctx.fillStyle = fade(0.2); ctx.fillRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    spin += dt * 0.45;
+    add();
+    const BANDS = 6;
+    for (let b = 0; b < BANDS; b++) {
+      const t = b / (BANDS - 1);
+      // this curtain listens to its own slice of the spectrum
+      let sum = 0; const s0 = Math.floor(t * 42), n = 12;
+      for (let i = 0; i < n; i++) sum += logSample(s0 + i, 60);
+      const a = (sum / n) / 255;
+      const cx = w * (0.12 + 0.76 * t) + Math.sin(spin * (0.5 + t * 0.6) + b * 2.1) * w * 0.07;
+      const bw = w * (0.15 + a * 0.12);
+      const hgt = h * (0.3 + a * 0.6);
+      const col = lerpRGB(CY, MG, t);
+      const g = ctx.createLinearGradient(0, 0, 0, hgt);
+      g.addColorStop(0, `rgba(${col[0]},${col[1]},${col[2]},0.02)`);
+      g.addColorStop(0.5, `rgba(${col[0]},${col[1]},${col[2]},${0.08 + a * 0.28})`);
+      g.addColorStop(1, `rgba(${col[0]},${col[1]},${col[2]},0)`);
+      ctx.fillStyle = g;
+      const sway = Math.sin(spin * 1.2 + b * 1.7) * w * 0.05;
+      ctx.beginPath();
+      ctx.moveTo(cx - bw / 2, 0);
+      ctx.bezierCurveTo(cx - bw / 2 + sway, hgt * 0.45, cx - bw / 4 + sway, hgt * 0.8, cx + sway * 0.5, hgt);
+      ctx.bezierCurveTo(cx + bw / 4 + sway, hgt * 0.8, cx + bw / 2 + sway, hgt * 0.45, cx + bw / 2, 0);
+      ctx.closePath(); ctx.fill();
+    }
+    normal();
+  }
+
+  // ---- ripple: beat-triggered expanding rings ----
+  function drawRipple(w, h, dt) {
+    normal();
+    ctx.fillStyle = fade(0.3); ctx.fillRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    const cx = w / 2, cy = h / 2;
+    const b = bass();
+    bassEnv = damp(bassEnv, b, 14, dt);
+    energyEnv = damp(energyEnv, energy(), 8, dt);
+    bassAvg = damp(bassAvg, b, 1.5, dt);
+    beatFlash = Math.max(0, beatFlash - dt * 3);
+    if (b > bassAvg * 1.28 && b > 0.22 && beatFlash < 0.2) {
+      beatFlash = 1;
+      ripples.push({ r: Math.min(w, h) * 0.06, a: 0.9, lw: 2.5 + b * 5, hue: Math.random() });
+      if (ripples.length > 14) ripples.shift();
+    }
+    add();
+    for (let i = ripples.length - 1; i >= 0; i--) {
+      const rp = ripples[i];
+      rp.r += dt * Math.min(w, h) * (0.35 + energyEnv * 0.5);
+      rp.a -= dt * 0.5;
+      if (rp.a <= 0) { ripples.splice(i, 1); continue; }
+      ctx.globalAlpha = rp.a;
+      ctx.strokeStyle = lerpColor(CY, MG, rp.hue);
+      ctx.lineWidth = rp.lw;
+      ctx.beginPath(); ctx.arc(cx, cy, rp.r, 0, Math.PI * 2); ctx.stroke();
+    }
+    // pulsing core
+    const cr = Math.min(w, h) * (0.05 + bassEnv * 0.06) + beatFlash * 14;
+    ctx.globalAlpha = 0.7 + beatFlash * 0.3;
+    ctx.drawImage(sprites[1], cx - cr, cy - cr, cr * 2, cr * 2);
+    ctx.globalAlpha = 1; normal();
+  }
+
+  // ---- strings: plucked harp strings, each tuned to a band ----
+  function drawStrings(w, h, dt) {
+    ctx.clearRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    spin += dt * 6;
+    const N = 26;
+    buildTargets(N, 1);
+    add(); ctx.lineCap = 'round';
+    for (let i = 0; i < N; i++) {
+      bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 26 : 7, dt);
+      const a = bars[i];
+      const x = ((i + 0.5) / N) * w;
+      const t = i / (N - 1);
+      const ampl = 0.5 + a * w * 0.022;
+      ctx.strokeStyle = lerpColor(CY, MG, t);
+      ctx.lineWidth = 1.2 + a * 2.4;
+      ctx.globalAlpha = 0.3 + a * 0.7;
+      if (a > 0.5) { ctx.shadowColor = lerpColor(CY, MG, t); ctx.shadowBlur = 12; }
+      else ctx.shadowBlur = 0;
+      ctx.beginPath();
+      const SEG = 16, harmonics = 2 + Math.round(t * 3);
+      for (let s = 0; s <= SEG; s++) {
+        const p = s / SEG, yy = p * h;
+        // standing-wave shape: harmonics ride under a sine envelope pinned at both ends
+        const xx = x + Math.sin(p * Math.PI * harmonics + spin * (1 + t)) * ampl * Math.sin(p * Math.PI);
+        s === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy);
+      }
+      ctx.stroke();
+    }
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1; normal();
+  }
+
+  // ---- city: synthwave skyline with reactive windows ----
+  function drawCity(w, h, dt) {
+    ctx.clearRect(0, 0, w, h);
+    analyser.getByteFrequencyData(freqData);
+    const horizon = h * 0.72;
+    bassEnv = damp(bassEnv, bass(), 12, dt);
+    spin += dt * 0.4;
+    // deterministic skyline, rebuilt only when the canvas size changes
+    const key = Math.round(w) + 'x' + Math.round(h);
+    if (cityKey !== key) {
+      cityKey = key; cityLayout = [];
+      let x = 0, rng = 1337;
+      const rand = () => { rng = (rng * 1103515245 + 12345) % 2147483648; return rng / 2147483648; };
+      while (x < w) {
+        const bw2 = w * (0.032 + rand() * 0.05);
+        cityLayout.push({ x, w: bw2, hMax: h * (0.16 + rand() * 0.36), win: 2 + Math.floor(rand() * 3) });
+        x += bw2 + 2;
+      }
+    }
+    // synthwave sun with slice cuts
+    const sunR = Math.min(w, h) * 0.21 * (1 + bassEnv * 0.05);
+    const sunY = horizon - sunR * 0.3;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(w / 2, sunY, sunR, 0, Math.PI * 2); ctx.clip();
+    const sg = ctx.createLinearGradient(0, sunY - sunR, 0, sunY + sunR);
+    sg.addColorStop(0, lerpColor(CY, MG, 0.1)); sg.addColorStop(1, lerpColor(CY, MG, 0.95));
+    ctx.fillStyle = sg; ctx.fillRect(w / 2 - sunR, sunY - sunR, sunR * 2, sunR * 2);
+    ctx.fillStyle = fade(1);
+    for (let i = 0; i < 5; i++) {
+      const yy = sunY + sunR * 0.1 + i * sunR * 0.17;
+      ctx.fillRect(w / 2 - sunR, yy, sunR * 2, 1.5 + i * 1.5);
+    }
+    ctx.restore();
+    // buildings, each tied to a spectrum band
+    const nB = Math.min(cityLayout.length, 200);
+    buildTargets(nB, 1);
+    for (let i = 0; i < nB; i++) {
+      bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 16 : 5, dt);
+      const bl = cityLayout[i];
+      const bh2 = bl.hMax * (0.35 + bars[i] * 0.8);
+      const by = horizon - bh2;
+      ctx.fillStyle = fade(0.97);
+      ctx.fillRect(bl.x, by, bl.w, bh2);
+      const col = lerpRGB(CY, MG, i / nB);
+      ctx.fillStyle = `rgba(${col[0]},${col[1]},${col[2]},0.8)`;
+      const wc = bl.win, wrows = Math.floor(bh2 / 11);
+      for (let r2 = 0; r2 < wrows; r2++) {
+        if (((i * 7 + r2 * 13) % 10) / 10 > bars[i]) continue;  // lit fraction ∝ loudness
+        for (let c2 = 0; c2 < wc; c2++) {
+          ctx.fillRect(bl.x + 3 + c2 * (bl.w - 6) / wc, by + 4 + r2 * 11, Math.max(2, (bl.w - 6) / wc - 3), 4);
+        }
+      }
+    }
+    // scrolling perspective ground grid
+    ctx.strokeStyle = `rgba(${MG[0]},${MG[1]},${MG[2]},0.35)`; ctx.lineWidth = 1;
+    for (let i = 0; i < 10; i++) {
+      const t = ((i / 10) + (spin % 1)) % 1;
+      const yy = horizon + Math.pow(t, 1.8) * (h - horizon);
+      ctx.beginPath(); ctx.moveTo(0, yy); ctx.lineTo(w, yy); ctx.stroke();
+    }
+    for (let i = 0; i <= 12; i++) {
+      const xx = (i / 12) * w;
+      ctx.beginPath(); ctx.moveTo(xx, horizon); ctx.lineTo(w / 2 + (xx - w / 2) * 3.2, h); ctx.stroke();
+    }
+    // horizon glow
+    const hg = ctx.createLinearGradient(0, horizon - 8, 0, horizon + 8);
+    hg.addColorStop(0, `rgba(${MG[0]},${MG[1]},${MG[2]},0)`);
+    hg.addColorStop(0.5, `rgba(${MG[0]},${MG[1]},${MG[2]},0.5)`);
+    hg.addColorStop(1, `rgba(${MG[0]},${MG[1]},${MG[2]},0)`);
+    ctx.fillStyle = hg; ctx.fillRect(0, horizon - 8, w, 16);
+  }
+
+  // ---- scope: goniometer-style lissajous (pro studio phase view) ----
+  function drawScope(w, h, dt) {
+    normal();
+    ctx.fillStyle = fade(0.16); ctx.fillRect(0, 0, w, h);
+    analyser.getByteTimeDomainData(timeData);
+    const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.4;
+    energyEnv = damp(energyEnv, energy(), 8, dt);
+    // reticle
+    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
+    ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
+    ctx.stroke();
+    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
+    add();
+    // plot the signal against a delayed copy of itself, rotated 45° like a real goniometer
+    const off = Math.floor(bufferLength / 4);
+    const N = Math.min(720, bufferLength - off);
+    const g = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
+    g.addColorStop(0, lerpColor(CY, MG, 0)); g.addColorStop(1, lerpColor(CY, MG, 1));
+    ctx.strokeStyle = g; ctx.lineWidth = 1.6;
+    ctx.globalAlpha = 0.45 + energyEnv * 0.55;
+    ctx.shadowColor = lerpColor(CY, MG, 0.5); ctx.shadowBlur = 10;
+    ctx.beginPath();
+    for (let i = 0; i < N; i++) {
+      const a = (timeData[i] - 128) / 128, b2 = (timeData[i + off] - 128) / 128;
+      const x = cx + (a - b2) * 0.7071 * R;
+      const y = cy - (a + b2) * 0.7071 * R;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1; normal();
   }
 
   function drawIdle(w, h, dt) {
@@ -1675,6 +2034,7 @@
     { m: 'bars' }, { m: 'mirror' }, { m: 'wave' }, { m: 'area' },
     { m: 'radial' }, { m: 'orb' }, { m: 'particles' }, { m: 'rings' },
     { m: 'tunnel' }, { m: 'spectro' }, { m: 'matrix' }, { m: 'galaxy' },
+    { m: 'aurora' }, { m: 'ripple' }, { m: 'strings' }, { m: 'city' }, { m: 'scope' },
     { m: 'bars', d3: true }, { m: 'area', d3: true }
   ];
 
@@ -1890,7 +2250,7 @@
     }
   }
 
-  const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro, matrix: drawMatrix, galaxy: drawGalaxy };
+  const dispatch = { bars: drawBars, mirror: drawMirror, wave: drawWave, area: drawArea, radial: drawRadial, orb: drawOrb, particles: drawParticles, rings: drawRings, tunnel: drawTunnel, spectro: drawSpectro, matrix: drawMatrix, galaxy: drawGalaxy, aurora: drawAurora, ripple: drawRipple, strings: drawStrings, city: drawCity, scope: drawScope };
 
   // ---------- studio metering ----------
   const meterbar = $('meterbar'), meterFill = $('meterFill'), meterPeak = $('meterPeak');
