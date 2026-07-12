@@ -90,6 +90,25 @@
   #fsBtn:hover { color: var(--text); border-color: rgba(0,229,255,0.4); }
   #fsBtn:active { transform: scale(0.85); }
 
+  .online-badge {
+    display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-dim);
+    background: var(--panel); border: 1px solid var(--panel-border);
+    border-radius: 10px; padding: 0 10px; height: 34px;
+    animation: riseIn 0.7s var(--ease) both;
+  }
+  .online-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: #39ff78; flex-shrink: 0;
+    box-shadow: 0 0 6px #39ff78;
+    animation: onlinePulse 1.8s ease-in-out infinite;
+  }
+  @keyframes onlinePulse {
+    0%, 100% { opacity: 1; } 50% { opacity: 0.35; }
+  }
+  .online-sep { color: var(--panel-border); }
+  #onlineNow { color: var(--text); font-weight: 600; }
+
   /* ---- immersive / fullscreen mode ---- */
   body.immersive header,
   body.immersive footer {
@@ -583,6 +602,12 @@
   <button id="fsBtn" aria-label="Fullscreen">
     <svg viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
   </button>
+  <div class="online-badge" id="onlineBadge" title="live viewers · all-time">
+    <span class="online-dot"></span>
+    <span id="onlineNow">–</span>
+    <span class="online-sep">·</span>
+    <span id="onlineTotal">–</span>
+  </div>
 </header>
 
 <div class="banner" id="banner">
@@ -679,6 +704,9 @@
     </div>
   </div>
 </footer>
+
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-database-compat.js"></script>
 
 <audio id="audio" crossorigin="anonymous"></audio>
 
@@ -1202,6 +1230,62 @@
   let savedTheme = null;
   try { savedTheme = localStorage.getItem('viz-theme'); } catch (e) {}
   applyTheme(THEMES.find(t => t.id === savedTheme) || THEMES[0]);
+
+  // ---------- live viewer counter (Firebase Realtime Database) ----------
+  (function initPresence() {
+    const onlineNowEl = $('onlineNow'), onlineTotalEl = $('onlineTotal'), badge = $('onlineBadge');
+    const firebaseConfig = {
+      apiKey: "AIzaSyAY1DV5UHDFK91BYfrsUA9yJR8cez0gM88",
+      authDomain: "online-counter-74c60.firebaseapp.com",
+      databaseURL: "https://online-counter-74c60-default-rtdb.firebaseio.com",
+      projectId: "online-counter-74c60",
+      storageBucket: "online-counter-74c60.firebasestorage.app",
+      messagingSenderId: "800313325208",
+      appId: "1:800313325208:web:46eafa49b4f91bc67242ed"
+    };
+    if (typeof firebase === 'undefined') { badge.style.display = 'none'; return; }
+    try {
+      firebase.initializeApp(firebaseConfig);
+      const db = firebase.database();
+      const sessionId = 'sess_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 9);
+      const sessionRef = db.ref('sessions/' + sessionId);
+      const sessionsRef = db.ref('sessions');
+      const totalRef = db.ref('stats/totalSessions');
+
+      // presence: only register once we have a real connection, and clean up
+      // automatically server-side if the tab closes, loses network, or crashes —
+      // onDisconnect fires even if no JS ever runs again on this client
+      db.ref('.info/connected').on('value', (snap) => {
+        if (snap.val() === true) {
+          sessionRef.set({ start: firebase.database.ServerValue.TIMESTAMP, active: firebase.database.ServerValue.TIMESTAMP });
+          sessionRef.onDisconnect().remove();
+          totalRef.transaction(v => (v || 0) + 1);
+        }
+      });
+
+      // heartbeat: refresh "active" so a stale/sleeping tab eventually ages out
+      // even in the rare case onDisconnect doesn't fire (e.g. abrupt OS kill)
+      const HEARTBEAT_MS = 20000, STALE_MS = 45000;
+      setInterval(() => { sessionRef.update({ active: firebase.database.ServerValue.TIMESTAMP }).catch(() => {}); }, HEARTBEAT_MS);
+      ['pointerdown', 'visibilitychange'].forEach(ev =>
+        document.addEventListener(ev, () => { if (!document.hidden) sessionRef.update({ active: firebase.database.ServerValue.TIMESTAMP }).catch(() => {}); })
+      );
+
+      // live concurrent count: all sessions, minus any that missed their
+      // heartbeat window (covers the crash edge case client-side too)
+      sessionsRef.on('value', (snap) => {
+        let n = 0; const now = Date.now();
+        snap.forEach(child => {
+          const a = child.val().active;
+          if (a && now - a < STALE_MS) n++;
+        });
+        onlineNowEl.textContent = n;
+      });
+      totalRef.on('value', (snap) => { onlineTotalEl.textContent = snap.val() || 0; });
+    } catch (e) {
+      badge.style.display = 'none';
+    }
+  })();
 
 
   function roundTop(x, y, w, h, r) {
