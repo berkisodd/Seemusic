@@ -1889,39 +1889,43 @@
     ctx.fillStyle = hg; ctx.fillRect(0, horizon - 8, w, 16);
   }
 
-  // ---- scope: goniometer-style lissajous (pro studio phase view) ----
+  // ---- scope: green phosphor vectorscope, long-persistence scribble ----
   function drawScope(w, h, dt) {
     normal();
-    ctx.fillStyle = fade(0.16); ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = fade(0.055); ctx.fillRect(0, 0, w, h);  // slow phosphor decay → trails scribble up
     analyser.getByteTimeDomainData(timeData);
-    const cx = w / 2, cy = h / 2, R = Math.min(w, h) * 0.4;
+    const cx = w / 2, cy = h / 2;
     energyEnv = damp(energyEnv, energy(), 8, dt);
-    // reticle
-    ctx.strokeStyle = 'rgba(255,255,255,0.05)'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(cx - R, cy); ctx.lineTo(cx + R, cy);
-    ctx.moveTo(cx, cy - R); ctx.lineTo(cx, cy + R);
-    ctx.stroke();
-    ctx.strokeStyle = 'rgba(255,255,255,0.07)';
-    ctx.beginPath(); ctx.arc(cx, cy, R, 0, Math.PI * 2); ctx.stroke();
-    add();
-    // plot the signal against a delayed copy of itself, rotated 45° like a real goniometer
-    const off = Math.floor(bufferLength / 4);
-    const N = Math.min(720, bufferLength - off);
-    const g = ctx.createLinearGradient(cx - R, cy - R, cx + R, cy + R);
-    g.addColorStop(0, lerpColor(CY, MG, 0)); g.addColorStop(1, lerpColor(CY, MG, 1));
-    ctx.strokeStyle = g; ctx.lineWidth = 1.6;
-    ctx.globalAlpha = 0.45 + energyEnv * 0.55;
-    ctx.shadowColor = lerpColor(CY, MG, 0.5); ctx.shadowBlur = 10;
-    ctx.beginPath();
-    for (let i = 0; i < N; i++) {
-      const a = (timeData[i] - 128) / 128, b2 = (timeData[i + off] - 128) / 128;
-      const x = cx + (a - b2) * 0.7071 * R;
-      const y = cy - (a + b2) * 0.7071 * R;
-      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    bassEnv = damp(bassEnv, bass(), 14, dt);
+    spin += dt * (0.5 + energyEnv * 1.2);
+    const R = Math.min(w, h) * (0.32 + bassEnv * 0.12);
+    // signature phosphor green — deliberately NOT theme-linked, that's the identity
+    const G = 'rgb(58,232,72)';
+    // three passes at different delays + slight rotations weave the lattice;
+    // normal blending (not additive) so dense areas cap at solid green, no white blowout
+    const offs = [Math.floor(bufferLength / 4), Math.floor(bufferLength / 3), Math.floor(bufferLength / 6)];
+    for (let p = 0; p < offs.length; p++) {
+      const off = offs[p];
+      const N = Math.min(640, bufferLength - off);
+      const rot = (p - 1) * 0.4 + Math.sin(spin * 0.7 + p * 2.1) * 0.12;
+      const cr = Math.cos(rot), sr = Math.sin(rot);
+      const jx = Math.sin(spin * 2.6 + p * 7) * R * 0.02;   // hand-drawn jitter
+      const jy = Math.cos(spin * 3.1 + p * 5) * R * 0.02;
+      ctx.strokeStyle = G;
+      ctx.lineWidth = p === 0 ? 1.5 : 0.9;
+      ctx.globalAlpha = (p === 0 ? 0.55 : 0.3) * (0.45 + energyEnv * 0.55);
+      if (p === 0) { ctx.shadowColor = 'rgba(58,232,72,0.7)'; ctx.shadowBlur = 8; }
+      else ctx.shadowBlur = 0;
+      ctx.beginPath();
+      for (let i = 0; i < N; i += 2) {
+        const a = (timeData[i] - 128) / 128, b2 = (timeData[i + off] - 128) / 128;
+        const x = (a - b2) * 0.7071 * R, y = -(a + b2) * 0.7071 * R;
+        const xr = x * cr - y * sr, yr = x * sr + y * cr;
+        i === 0 ? ctx.moveTo(cx + jx + xr, cy + jy + yr) : ctx.lineTo(cx + jx + xr, cy + jy + yr);
+      }
+      ctx.stroke();
     }
-    ctx.stroke();
-    ctx.shadowBlur = 0; ctx.globalAlpha = 1; normal();
+    ctx.shadowBlur = 0; ctx.globalAlpha = 1;
   }
 
   function drawIdle(w, h, dt) {
