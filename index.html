@@ -70,13 +70,75 @@
   .track-name {
     font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
     max-width: 40%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-    margin-left: auto; margin-right: 12px;
+    margin-right: 12px;
   }
 
   .layout-toggle {
     display: flex; gap: 4px; flex-shrink: 0;
     background: var(--panel); border: 1px solid var(--panel-border);
     border-radius: 10px; padding: 3px;
+  }
+
+  /* ---- theme swatches ---- */
+  .themes {
+    display: flex; gap: 5px; flex-shrink: 0; margin-left: auto;
+  }
+  .theme-btn {
+    width: 20px; height: 20px; border-radius: 50%;
+    border: 1.5px solid transparent; padding: 0; cursor: pointer;
+    transition: transform 0.35s var(--spring), border-color 0.2s;
+  }
+  .theme-btn:hover { transform: scale(1.18); }
+  .theme-btn:active { transform: scale(0.88); }
+  .theme-btn.active { border-color: var(--text); transform: scale(1.12); }
+
+  /* ---- scrubber ---- */
+  .scrubber {
+    display: none;
+    width: 100%; max-width: 860px;
+    align-items: center; gap: 10px;
+    padding: 0 4px; margin-bottom: 4px;
+    animation: riseIn 0.6s var(--ease) both;
+  }
+  .scrubber.show { display: flex; }
+  .scrubber.live { display: none; }
+  .time {
+    font-family: var(--mono); font-size: 10.5px; color: var(--text-dim);
+    min-width: 34px; text-align: center; flex-shrink: 0;
+  }
+  .scrub-track {
+    position: relative; flex: 1; height: 34px;
+    cursor: pointer; touch-action: none;
+    border-radius: 6px; overflow: hidden;
+    background: rgba(255,255,255,0.03);
+  }
+  #waveMini { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+  .scrub-played {
+    position: absolute; top: 0; bottom: 0; left: 0; width: 0;
+    background: linear-gradient(90deg, rgba(0,0,0,0), rgba(255,255,255,0.06));
+    border-right: 1px solid var(--cyan);
+    pointer-events: none;
+  }
+  .scrub-head {
+    position: absolute; top: 50%; left: 0;
+    width: 11px; height: 11px; margin: -5.5px 0 0 -5.5px;
+    border-radius: 50%; background: var(--cyan);
+    box-shadow: 0 0 10px var(--cyan);
+    pointer-events: none;
+    transition: transform 0.2s var(--spring);
+  }
+  .scrub-track:active .scrub-head { transform: scale(1.5); }
+
+  /* ---- mic ---- */
+  #micBtn { padding: 0 14px; flex-shrink: 0; }
+  #micBtn svg { width: 17px; height: 17px; fill: currentColor; }
+  #micBtn.live {
+    border-color: var(--magenta); color: var(--magenta);
+    animation: micPulse 1.6s ease-out infinite;
+  }
+  @keyframes micPulse {
+    0% { box-shadow: 0 0 0 0 rgba(255,46,147,0.45); }
+    100% { box-shadow: 0 0 0 12px rgba(255,46,147,0); }
   }
   .layout-btn {
     width: 36px; height: 27px;
@@ -473,6 +535,7 @@
 <header>
   <div class="brand">wave<span>form</span> · lab</div>
   <div class="track-name" id="trackName">no track loaded</div>
+  <div class="themes" id="themes"></div>
   <div class="layout-toggle" id="layoutToggle">
     <button class="layout-btn" data-layout="desktop" aria-label="Desktop layout">
       <svg viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
@@ -525,6 +588,16 @@
     <div class="recent-row" id="recentRow"></div>
   </div>
 
+  <div class="scrubber" id="scrubber">
+    <span class="time" id="timeCur">0:00</span>
+    <div class="scrub-track" id="scrubTrack">
+      <canvas id="waveMini"></canvas>
+      <div class="scrub-played" id="scrubPlayed"></div>
+      <div class="scrub-head" id="scrubHead"></div>
+    </div>
+    <span class="time" id="timeDur">0:00</span>
+  </div>
+
   <div class="controls">
     <button class="btn" id="playBtn" disabled>
       <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
@@ -532,6 +605,9 @@
     </button>
 
     <button class="btn" id="uploadBtn">Choose Audio</button>
+    <button class="btn" id="micBtn" aria-label="Live microphone input">
+      <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5-3c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+    </button>
     <input type="file" id="fileInput" accept="audio/*,.mp3,.m4a,.wav,.aac,.ogg,.flac,.wma,audio/mpeg,audio/mp4,audio/x-m4a">
 
     <div class="volume-group">
@@ -615,21 +691,26 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   }
   function size() { const r = wrap.getBoundingClientRect(); return { w: r.width, h: r.height }; }
-  window.addEventListener('resize', () => { resize(); updateIndicator(); });
+  window.addEventListener('resize', () => { resize(); updateIndicator(); if (typeof drawMini === 'function') drawMini(); });
   resize();
 
-  // ---------- glow sprites (pre-rendered for performance) ----------
-  const HUES = [[0,229,255],[80,200,255],[150,120,255],[200,90,235],[255,70,170],[255,46,147]];
-  const sprites = HUES.map(rgb => {
-    const c = document.createElement('canvas'); c.width = c.height = 64;
-    const g = c.getContext('2d');
-    const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
-    grad.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},1)`);
-    grad.addColorStop(0.2, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.55)`);
-    grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
-    g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
-    return c;
-  });
+  // ---------- glow sprites (pre-rendered for performance, rebuilt on theme change) ----------
+  let HUES = [];
+  let sprites = [];
+  function buildSprites() {
+    HUES = [];
+    for (let i = 0; i < 6; i++) HUES.push(lerpRGB(CY, MG, i / 5));
+    sprites = HUES.map(rgb => {
+      const c = document.createElement('canvas'); c.width = c.height = 64;
+      const g = c.getContext('2d');
+      const grad = g.createRadialGradient(32, 32, 0, 32, 32, 32);
+      grad.addColorStop(0, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},1)`);
+      grad.addColorStop(0.2, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.55)`);
+      grad.addColorStop(1, `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0)`);
+      g.fillStyle = grad; g.fillRect(0, 0, 64, 64);
+      return c;
+    });
+  }
 
   // ---------- audio ----------
   function setupGraph() {
@@ -730,23 +811,169 @@
   }
 
   // ---------- load / play ----------
-  function loadUrl(url, name) {
+  function loadUrl(url, name, blob) {
+    stopMic();
     if (currentUrl) URL.revokeObjectURL(currentUrl);
     currentUrl = url; currentName = name;
     audio.src = url; trackName.textContent = name;
     hasTrack = true; idleHint.style.opacity = '0'; playBtn.disabled = false;
     meterbar.classList.add('show');
+    scrubber.classList.add('show');
+    scrubber.classList.remove('live');
+    peaksMini = null;
+    timeCur.textContent = '0:00'; timeDur.textContent = '0:00';
+    scrubPlayed.style.width = '0%'; scrubHead.style.left = '0%';
+    buildMiniWave(blob || url);
     sync3D();
     setupGraph();
     audio.play().then(() => { if (audioCtx.state === 'suspended') audioCtx.resume(); }).catch(() => {});
     renderRecent();
   }
+  // ---------- live microphone input ----------
+  const micBtn = $('micBtn');
+  let micStream = null, micSource = null, liveMic = false;
+
+  async function startMic() {
+    try {
+      setupGraph();
+      if (audioCtx.state === 'suspended') await audioCtx.resume();
+      micStream = await navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false }
+      });
+      audio.pause();
+      try { source.disconnect(analyser); } catch (e) {}   // unhook the file source
+      micSource = audioCtx.createMediaStreamSource(micStream);
+      micSource.connect(analyser);
+      // NOTE: mic is deliberately NOT routed to the speakers — that's a feedback loop
+      liveMic = true;
+      micBtn.classList.add('live');
+      hasTrack = true;
+      idleHint.style.opacity = '0';
+      meterbar.classList.add('show');
+      scrubber.classList.add('live');
+      trackName.textContent = 'live input · microphone';
+      playBtn.disabled = true;
+      sync3D();
+    } catch (e) {
+      trackName.textContent = 'microphone blocked — check permissions';
+      liveMic = false;
+      micBtn.classList.remove('live');
+    }
+  }
+  function stopMic() {
+    if (!liveMic) return;
+    liveMic = false;
+    micBtn.classList.remove('live');
+    scrubber.classList.remove('live');
+    try { micSource.disconnect(); } catch (e) {}
+    if (micStream) micStream.getTracks().forEach(t => t.stop());
+    micStream = null; micSource = null;
+    try { source.connect(analyser); } catch (e) {}       // restore the file source
+    playBtn.disabled = !currentUrl;
+    trackName.textContent = currentName || 'no track loaded';
+    if (!currentUrl) { hasTrack = false; idleHint.style.opacity = ''; meterbar.classList.remove('show'); sync3D(); }
+  }
+  micBtn.addEventListener('click', () => {
+    if (liveMic) { stopMic(); return; }
+    stopDemo(); hideWelcome();
+    startMic();
+  });
+
+  // ---------- scrubber ----------
+  const scrubber = $('scrubber'), scrubTrack = $('scrubTrack');
+  const scrubPlayed = $('scrubPlayed'), scrubHead = $('scrubHead');
+  const timeCur = $('timeCur'), timeDur = $('timeDur'), waveMini = $('waveMini');
+  const mctx = waveMini.getContext('2d');
+  let peaksMini = null, scrubbing = false;
+
+  const fmt = s => {
+    if (!isFinite(s) || s < 0) s = 0;
+    const m = Math.floor(s / 60);
+    return m + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+  };
+
+  // decode the track once to draw a real min/max waveform overview
+  async function buildMiniWave(blobOrUrl) {
+    peaksMini = null; drawMini();
+    try {
+      const ab = blobOrUrl instanceof Blob
+        ? await blobOrUrl.arrayBuffer()
+        : await (await fetch(blobOrUrl)).arrayBuffer();
+      const OAC = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+      const ctxOff = new OAC(1, 1, 44100);
+      const buf = await ctxOff.decodeAudioData(ab);
+      const ch = buf.getChannelData(0);
+      const N = 320, block = Math.floor(ch.length / N);
+      const p = new Float32Array(N);
+      for (let i = 0; i < N; i++) {
+        let mx = 0;
+        const s0 = i * block, s1 = Math.min(ch.length, s0 + block);
+        for (let j = s0; j < s1; j += 4) { const v = Math.abs(ch[j]); if (v > mx) mx = v; }
+        p[i] = mx;
+      }
+      peaksMini = p;
+      drawMini();
+    } catch (e) { peaksMini = null; drawMini(); }
+  }
+
+  function drawMini() {
+    const r = waveMini.getBoundingClientRect();
+    if (!r.width) return;
+    const d = window.devicePixelRatio || 1;
+    waveMini.width = Math.round(r.width * d);
+    waveMini.height = Math.round(r.height * d);
+    mctx.setTransform(d, 0, 0, d, 0, 0);
+    mctx.clearRect(0, 0, r.width, r.height);
+    const mid = r.height / 2;
+    if (!peaksMini) {           // flat placeholder line while decoding
+      mctx.strokeStyle = `rgba(${CY[0]},${CY[1]},${CY[2]},0.18)`;
+      mctx.lineWidth = 1;
+      mctx.beginPath(); mctx.moveTo(0, mid); mctx.lineTo(r.width, mid); mctx.stroke();
+      return;
+    }
+    const n = peaksMini.length, bw = r.width / n;
+    for (let i = 0; i < n; i++) {
+      const hgt = Math.max(1, peaksMini[i] * mid * 1.7);
+      mctx.fillStyle = lerpColor(CY, MG, i / n);
+      mctx.globalAlpha = 0.5;
+      mctx.fillRect(i * bw, mid - hgt, Math.max(1, bw - 0.6), hgt * 2);
+    }
+    mctx.globalAlpha = 1;
+  }
+
+  function seekFromX(clientX) {
+    const r = scrubTrack.getBoundingClientRect();
+    const t = Math.max(0, Math.min(1, (clientX - r.left) / r.width));
+    if (audio.duration && isFinite(audio.duration)) audio.currentTime = t * audio.duration;
+    updateScrub();
+  }
+  scrubTrack.addEventListener('pointerdown', (e) => {
+    scrubbing = true;
+    try { scrubTrack.setPointerCapture(e.pointerId); } catch (err) {}
+    seekFromX(e.clientX);
+  });
+  scrubTrack.addEventListener('pointermove', (e) => { if (scrubbing) seekFromX(e.clientX); });
+  const endScrub = () => { scrubbing = false; };
+  scrubTrack.addEventListener('pointerup', endScrub);
+  scrubTrack.addEventListener('pointercancel', endScrub);
+
+  function updateScrub() {
+    if (liveMic || !audio.duration || !isFinite(audio.duration)) return;
+    const t = audio.currentTime / audio.duration;
+    scrubPlayed.style.width = (t * 100) + '%';
+    scrubHead.style.left = (t * 100) + '%';
+    timeCur.textContent = fmt(audio.currentTime);
+    timeDur.textContent = fmt(audio.duration);
+  }
+  audio.addEventListener('loadedmetadata', updateScrub);
+  audio.addEventListener('timeupdate', updateScrub);
+
   fileInput.addEventListener('change', (e) => {
     const file = e.target.files[0]; if (!file) return;
     stopDemo(); hideWelcome();
-    loadUrl(URL.createObjectURL(file), file.name); saveTrack(file.name, file);
+    loadUrl(URL.createObjectURL(file), file.name, file); saveTrack(file.name, file);
   });
-  function playBlob(name, blob) { stopDemo(); loadUrl(URL.createObjectURL(blob), name); saveTrack(name, blob); }
+  function playBlob(name, blob) { stopDemo(); loadUrl(URL.createObjectURL(blob), name, blob); saveTrack(name, blob); }
 
   uploadBtn.addEventListener('click', () => fileInput.click());
   playBtn.addEventListener('click', () => {
@@ -821,7 +1048,7 @@
       });
       setTimeout(() => { headerEl.classList.remove('bounce'); footerEl.classList.remove('bounce'); }, 600);
     }
-    requestAnimationFrame(() => requestAnimationFrame(updateIndicator));
+    requestAnimationFrame(() => requestAnimationFrame(() => { updateIndicator(); drawMini(); }));
   }
   layoutBtns.forEach(b => b.addEventListener('click', () => applyLayout(b.dataset.layout, true)));
   applyLayout(window.innerWidth <= 720 ? 'mobile' : 'desktop', false);
@@ -831,9 +1058,56 @@
     if (!e.target.closest('.modes, .recent-row, input[type="range"]')) e.preventDefault();
   }, { passive: false });
 
-  // ---------- helpers ----------
-  const CY = [0, 229, 255], MG = [255, 46, 147];
-  function lerpColor(a, b, t) { return `rgb(${Math.round(a[0]+(b[0]-a[0])*t)},${Math.round(a[1]+(b[1]-a[1])*t)},${Math.round(a[2]+(b[2]-a[2])*t)})`; }
+  // ---------- helpers + theme ----------
+  const CY = [0, 229, 255], MG = [255, 46, 147];   // mutated in place by themes
+  function lerpRGB(a, b, t) { return [Math.round(a[0]+(b[0]-a[0])*t), Math.round(a[1]+(b[1]-a[1])*t), Math.round(a[2]+(b[2]-a[2])*t)]; }
+  function lerpColor(a, b, t) { const c = lerpRGB(a, b, t); return `rgb(${c[0]},${c[1]},${c[2]})`; }
+  const hex = c => '#' + c.map(v => v.toString(16).padStart(2, '0')).join('');
+
+  const THEMES = [
+    { id: 'neon',   name: 'Neon',   a: [0, 229, 255],   b: [255, 46, 147],  bg: '#060812' },
+    { id: 'toxic',  name: 'Toxic',  a: [57, 255, 120],  b: [168, 85, 247],  bg: '#040d09' },
+    { id: 'sunset', name: 'Sunset', a: [255, 176, 32],  b: [255, 61, 106],  bg: '#140a08' },
+    { id: 'ice',    name: 'Ice',    a: [92, 225, 255],  b: [88, 110, 255],  bg: '#050a16' },
+    { id: 'mono',   name: 'Mono',   a: [235, 240, 255], b: [120, 132, 170], bg: '#0a0a0c' }
+  ];
+  let theme = THEMES[0];
+  function applyTheme(t) {
+    theme = t;
+    CY[0] = t.a[0]; CY[1] = t.a[1]; CY[2] = t.a[2];
+    MG[0] = t.b[0]; MG[1] = t.b[1]; MG[2] = t.b[2];
+    const r = document.documentElement.style;
+    r.setProperty('--cyan', hex(t.a));
+    r.setProperty('--magenta', hex(t.b));
+    r.setProperty('--bg', t.bg);
+    BGF = t.bg.length === 7
+      ? [parseInt(t.bg.slice(1,3),16), parseInt(t.bg.slice(3,5),16), parseInt(t.bg.slice(5,7),16)]
+      : [6, 8, 18];
+    buildSprites();
+    try { localStorage.setItem('viz-theme', t.id); } catch (e) {}
+    document.querySelectorAll('.theme-btn').forEach(b => b.classList.toggle('active', b.dataset.theme === t.id));
+    if (typeof drawMini === 'function') drawMini();   // waveform overview uses theme colors
+  }
+  let BGF = [6, 8, 18];
+  const fade = a => `rgba(${BGF[0]},${BGF[1]},${BGF[2]},${a})`;   // theme-aware trail fade
+
+  // ---- theme swatches ----
+  const themesEl = $('themes');
+  THEMES.forEach(t => {
+    const b = document.createElement('button');
+    b.className = 'theme-btn';
+    b.dataset.theme = t.id;
+    b.title = t.name;
+    b.setAttribute('aria-label', t.name + ' theme');
+    b.style.background = `linear-gradient(135deg, ${hex(t.a)}, ${hex(t.b)})`;
+    b.addEventListener('click', () => applyTheme(t));
+    themesEl.appendChild(b);
+  });
+  let savedTheme = null;
+  try { savedTheme = localStorage.getItem('viz-theme'); } catch (e) {}
+  applyTheme(THEMES.find(t => t.id === savedTheme) || THEMES[0]);
+
+
   function roundTop(x, y, w, h, r) {
     r = Math.min(r, w / 2, h);
     ctx.beginPath();
@@ -853,8 +1127,8 @@
     buildTargets(count, h * 0.9);
     add();
     const grad = ctx.createLinearGradient(0, h, 0, 0);
-    grad.addColorStop(0, '#00e5ff'); grad.addColorStop(1, '#ff2e93');
-    ctx.fillStyle = grad; ctx.shadowColor = 'rgba(0,229,255,0.35)'; ctx.shadowBlur = 16;
+    grad.addColorStop(0, lerpColor(CY,MG,0)); grad.addColorStop(1, lerpColor(CY,MG,1));
+    ctx.fillStyle = grad; ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},0.35)`; ctx.shadowBlur = 16;
     for (let i = 0; i < count; i++) {
       bars[i] = damp(bars[i], targets[i], targets[i] > bars[i] ? 34 : 9, dt);
       const bh = Math.max(2, bars[i]), x = i * (bw + gap);
@@ -923,15 +1197,15 @@
     for (let i = bot.length - 1; i >= 0; i--) ctx.lineTo(bot[i].x, bot[i].y);
     ctx.closePath();
     const g = ctx.createLinearGradient(0, 0, 0, h);
-    g.addColorStop(0, 'rgba(0,229,255,0.10)'); g.addColorStop(0.5, 'rgba(120,80,220,0.06)'); g.addColorStop(1, 'rgba(255,46,147,0.10)');
+    g.addColorStop(0, `rgba(${CY[0]},${CY[1]},${CY[2]},0.10)`); g.addColorStop(0.5, 'rgba(120,80,220,0.06)'); g.addColorStop(1, `rgba(${MG[0]},${MG[1]},${MG[2]},0.10)`);
     ctx.fillStyle = g; ctx.fill();
     // mirror trace (dim)
     ctx.globalAlpha = 0.4; ctx.lineWidth = 1.6; ctx.strokeStyle = '#ff2e93';
-    ctx.shadowColor = 'rgba(255,46,147,0.5)'; ctx.shadowBlur = 14;
+    ctx.shadowColor = `rgba(${MG[0]},${MG[1]},${MG[2]},0.5)`; ctx.shadowBlur = 14;
     trace(bot); ctx.stroke();
     // main trace (bold)
     ctx.globalAlpha = 1; ctx.lineWidth = 3; ctx.strokeStyle = '#4ff0ff';
-    ctx.shadowColor = 'rgba(0,229,255,0.7)'; ctx.shadowBlur = 18;
+    ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},0.7)`; ctx.shadowBlur = 18;
     trace(top); ctx.stroke();
     ctx.shadowBlur = 0; normal();
   }
@@ -958,7 +1232,7 @@
     const fill = ctx.createLinearGradient(0, 0, 0, h);
     fill.addColorStop(0, 'rgba(0,229,255,0.5)'); fill.addColorStop(0.5, 'rgba(120,80,220,0.22)'); fill.addColorStop(1, 'rgba(255,46,147,0.03)');
     ctx.fillStyle = fill; ctx.fill();
-    path(); ctx.strokeStyle = '#8ff2ff'; ctx.lineWidth = 2; ctx.shadowColor = 'rgba(0,229,255,0.7)'; ctx.shadowBlur = 18; ctx.stroke();
+    path(); ctx.strokeStyle = lerpColor(CY,[255,255,255],0.45); ctx.lineWidth = 2; ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},0.7)`; ctx.shadowBlur = 18; ctx.stroke();
     ctx.shadowBlur = 0; normal();
   }
 
@@ -979,7 +1253,7 @@
       const ang = (i / count) * Math.PI * 2 - Math.PI / 2 + spin;
       const c = Math.cos(ang), sn = Math.sin(ang), t = i / count;
       ctx.strokeStyle = t < 0.5 ? lerpColor(CY, MG, t * 2) : lerpColor(MG, CY, (t - 0.5) * 2);
-      ctx.lineWidth = 3; ctx.shadowColor = 'rgba(0,229,255,0.35)'; ctx.shadowBlur = 8;
+      ctx.lineWidth = 3; ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},0.35)`; ctx.shadowBlur = 8;
       ctx.beginPath();
       ctx.moveTo(cx + c * baseR, cy + sn * baseR);
       ctx.lineTo(cx + c * (baseR + len), cy + sn * (baseR + len)); ctx.stroke();
@@ -1021,7 +1295,7 @@
     ctx.closePath();
     const fill = ctx.createRadialGradient(cx - baseR * 0.3, cy - baseR * 0.3, 0, cx, cy, baseR * 1.6);
     fill.addColorStop(0, 'rgba(120,240,255,0.95)'); fill.addColorStop(0.55, 'rgba(120,80,220,0.7)'); fill.addColorStop(1, 'rgba(255,46,147,0.55)');
-    ctx.fillStyle = fill; ctx.shadowColor = 'rgba(0,229,255,0.55)'; ctx.shadowBlur = 34; ctx.fill();
+    ctx.fillStyle = fill; ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},0.55)`; ctx.shadowBlur = 34; ctx.fill();
     ctx.shadowBlur = 0;
     ctx.beginPath(); ctx.arc(cx - baseR * 0.22, cy - baseR * 0.22, baseR * 0.32, 0, Math.PI * 2);
     ctx.fillStyle = 'rgba(255,255,255,0.22)'; ctx.fill();
@@ -1040,7 +1314,7 @@
   function drawParticles(w, h, dt) {
     // motion-blur trail
     normal();
-    ctx.fillStyle = 'rgba(6,8,18,0.28)'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = fade(0.28); ctx.fillRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
     const cx = w / 2, cy = h / 2;
     const b = bass(), e = energy();
@@ -1149,7 +1423,7 @@
   let tunnelZ = 0;
   function drawTunnel(w, h, dt) {
     normal();
-    ctx.fillStyle = 'rgba(6,8,18,0.5)'; ctx.fillRect(0, 0, w, h); // trail fade
+    ctx.fillStyle = fade(0.5); ctx.fillRect(0, 0, w, h); // trail fade
     analyser.getByteFrequencyData(freqData);
     const cx = w / 2, cy = h / 2;
     const b = bass(), e = energy();
@@ -1211,7 +1485,7 @@
     ctx.drawImage(spectroCv, 0, 0, w, h);
     // scanline sheen at the write edge
     const g = ctx.createLinearGradient(w - 40, 0, w, 0);
-    g.addColorStop(0, 'rgba(0,229,255,0)'); g.addColorStop(1, 'rgba(0,229,255,0.10)');
+    g.addColorStop(0, `rgba(${CY[0]},${CY[1]},${CY[2]},0)`); g.addColorStop(1, 'rgba(0,229,255,0.10)');
     ctx.fillStyle = g; ctx.fillRect(w - 40, 0, 40, h);
   }
 
@@ -1259,7 +1533,7 @@
   // ---- galaxy: rotating spiral of glowing points ----
   function drawGalaxy(w, h, dt) {
     normal();
-    ctx.fillStyle = 'rgba(6,8,18,0.32)'; ctx.fillRect(0, 0, w, h);
+    ctx.fillStyle = fade(0.32); ctx.fillRect(0, 0, w, h);
     analyser.getByteFrequencyData(freqData);
     const cx = w / 2, cy = h / 2;
     const b = bass(), e = energy();
@@ -1419,7 +1693,7 @@
     const buf = new Uint8Array(bytes.length);
     for (let i = 0; i < bytes.length; i++) buf[i] = bytes.charCodeAt(i);
     const blob = new Blob([buf], { type: 'audio/mpeg' });
-    loadUrl(URL.createObjectURL(blob), 'Aloboi – Give Me More (Just Rawer) · demo');
+    loadUrl(URL.createObjectURL(blob), 'Aloboi – Give Me More (Just Rawer) · demo', blob);
     demoMode = true; demoT = 0; tourIdx = 0;
     demoPill.classList.add('show');
     tourStep();
@@ -1488,7 +1762,7 @@
 
     // ---- ground grid for depth reference ----
     ctx.lineWidth = 1;
-    ctx.strokeStyle = 'rgba(0,229,255,0.10)';
+    ctx.strokeStyle = lerpColor(CY,BGF,0.82);
     for (let gi = 0; gi <= 6; gi++) {
       const gz = (gi / 6 - 0.5) * Z3;
       const a = proj(-W3 / 2, 0, gz), b = proj(W3 / 2, 0, gz);
@@ -1544,19 +1818,19 @@
         for (let i = H_PTS - 1; i >= 0; i--) ctx.lineTo(B[i][0], B[i][1]);
         ctx.closePath();
         ctx.globalAlpha = 1;
-        ctx.fillStyle = 'rgba(6,8,18,0.82)';
+        ctx.fillStyle = fade(0.82);
         ctx.fill();
 
         if (mode === 'area') {
           const tg = ctx.createLinearGradient(0, P[0][1] - 40, 0, B[0][1]);
-          tg.addColorStop(0, 'rgba(0,229,255,0.4)');
-          tg.addColorStop(1, 'rgba(255,46,147,0.05)');
+          tg.addColorStop(0, `rgba(${CY[0]},${CY[1]},${CY[2]},0.4)`);
+          tg.addColorStop(1, `rgba(${MG[0]},${MG[1]},${MG[2]},0.05)`);
           ctx.globalAlpha = alpha;
           ctx.fillStyle = tg; ctx.fill();
           ctx.beginPath();
           ctx.moveTo(P[0][0], P[0][1]);
           for (let i = 1; i < H_PTS; i++) ctx.lineTo(P[i][0], P[i][1]);
-          ctx.strokeStyle = '#8ff2ff';
+          ctx.strokeStyle = lerpColor(CY,[255,255,255],0.45);
           ctx.lineWidth = (front ? 2 : 1) * lw;
           ctx.stroke();
         } else if (mode === 'wave') {
@@ -1566,11 +1840,11 @@
             ctx.quadraticCurveTo(P[i][0], P[i][1], (P[i][0] + P[i + 1][0]) / 2, (P[i][1] + P[i + 1][1]) / 2);
           }
           const wg = ctx.createLinearGradient(P[0][0], 0, P[H_PTS - 1][0], 0);
-          wg.addColorStop(0, '#ff2e93'); wg.addColorStop(0.5, '#c86bff'); wg.addColorStop(1, '#00e5ff');
+          wg.addColorStop(0, lerpColor(CY,MG,1)); wg.addColorStop(0.5, lerpColor(CY,MG,0.5)); wg.addColorStop(1, lerpColor(CY,MG,0));
           ctx.strokeStyle = wg;
           ctx.globalAlpha = alpha;
           ctx.lineWidth = (front ? 2.4 : 1.1) * lw;
-          if (front) { ctx.shadowColor = 'rgba(255,46,147,0.6)'; ctx.shadowBlur = 12; }
+          if (front) { ctx.shadowColor = `rgba(${MG[0]},${MG[1]},${MG[2]},0.6)`; ctx.shadowBlur = 12; }
           ctx.stroke();
           ctx.shadowBlur = 0;
         } else {
@@ -1608,9 +1882,9 @@
     gy0 = Math.max(0, Math.min(h, gy0)); gy1 = Math.max(0, Math.min(h, gy1));
     if (gy1 - gy0 > 4) {
       const fog = ctx.createLinearGradient(0, gy0, 0, gy1);
-      fog.addColorStop(0, 'rgba(6,8,18,0)');
-      fog.addColorStop(0.55, 'rgba(6,8,18,0.35)');
-      fog.addColorStop(1, 'rgba(6,8,18,0.92)');
+      fog.addColorStop(0, fade(0));
+      fog.addColorStop(0.55, fade(0.35));
+      fog.addColorStop(1, fade(0.92));
       ctx.fillStyle = fog;
       ctx.fillRect(0, gy0, w, gy1 - gy0);
     }
