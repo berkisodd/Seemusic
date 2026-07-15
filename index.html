@@ -109,6 +109,13 @@
   .online-sep { color: var(--panel-border); }
   #onlineNow { color: var(--text); font-weight: 600; }
 
+  .beat-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    margin-left: 5px; vertical-align: middle;
+    background: var(--cyan); opacity: 0.15;
+    box-shadow: 0 0 6px var(--cyan);
+  }
+
   /* ---- immersive / fullscreen mode ---- */
   body.immersive header,
   body.immersive footer {
@@ -647,6 +654,7 @@
       <div class="stat"><span class="stat-label">RMS</span><span class="stat-val" id="statRms">-∞ dB</span></div>
       <div class="stat"><span class="stat-label">MAX</span><span class="stat-val" id="statMax">-∞ dB</span></div>
       <div class="stat"><span class="stat-label">FREQ</span><span class="stat-val" id="statFreq">— Hz</span></div>
+      <div class="stat"><span class="stat-label">BPM<span class="beat-dot" id="beatDot"></span></span><span class="stat-val" id="statBpm">—</span></div>
     </div>
   </div>
 
@@ -760,6 +768,10 @@
   // cruise mode
   let roadT = 0, shake = 0, dropEnv = 0, truckBob = 0, truckKey = '';
   const cruiseCars = [], clouds = [], puffs = [];
+  // bpm detection
+  let bpmOnsets = [], bpmVal = 0, bpmConfident = false;
+  let bpmBassAvg = 0, bpmRefract = 0, beatPeriod = 0, beatPhaseT = 0, beatPulse = 0;
+  function resetBPM() { bpmOnsets = []; bpmVal = 0; bpmConfident = false; bpmBassAvg = 0; beatPeriod = 0; beatPhaseT = 0; beatPulse = 0; }
 
   // frame-rate-independent exponential damping
   function damp(cur, target, rate, dt) { return cur + (target - cur) * (1 - Math.exp(-rate * dt)); }
@@ -906,6 +918,7 @@
     timeCur.textContent = '0:00'; timeDur.textContent = '0:00';
     scrubPlayed.style.width = '0%'; scrubHead.style.left = '0%';
     buildMiniWave(blob || url);
+    resetBPM();
     sync3D();
     setupGraph();
     audio.play().then(() => { if (audioCtx.state === 'suspended') audioCtx.resume(); }).catch(() => {});
@@ -934,6 +947,7 @@
       meterbar.classList.add('show');
       scrubber.classList.add('live');
       trackName.textContent = 'live input · microphone';
+      resetBPM();
       playBtn.disabled = true;
       sync3D();
     } catch (e) {
@@ -2608,6 +2622,63 @@
   // map dB (-60..0) to 0..100% for the meter
   function dbToPct(db) { return Math.max(0, Math.min(100, (db + 60) / 60 * 100)); }
 
+  // ---------- BPM detection ----------
+  const beatDot = $('beatDot'), statBpm = $('statBpm');
+  function updateBPM(dt) {
+    // freqData is already fresh — every draw mode fetches it this frame
+    const bb = bass();
+    bpmBassAvg = damp(bpmBassAvg, bb, 1.2, dt);
+    bpmRefract -= dt;
+    beatPhaseT += dt;
+    // predicted beat from the locked grid keeps the pulse steady through quiet bars
+    if (beatPeriod > 0 && beatPhaseT >= beatPeriod) {
+      beatPhaseT -= beatPeriod;
+      beatPulse = 1;
+    }
+    beatPulse = Math.max(0, beatPulse - dt * 5);
+
+    // onset: bass jumps well above its running average
+    if (bb > bpmBassAvg * 1.22 && bb > 0.16 && bpmRefract <= 0) {
+      bpmRefract = 0.22;                                    // refractory ≈ max 270 BPM
+      const now = performance.now() / 1000;
+      bpmOnsets.push(now);
+      while (bpmOnsets.length && now - bpmOnsets[0] > 12) bpmOnsets.shift();
+      if (bpmOnsets.length >= 6) computeBPM();
+      // resync the grid to real kicks (only if near the predicted phase, or no lock yet)
+      if (!beatPeriod || beatPhaseT < beatPeriod * 0.25 || beatPhaseT > beatPeriod * 0.75) {
+        beatPhaseT = 0;
+        beatPulse = 1;
+      }
+    }
+  }
+
+  function computeBPM() {
+    // fold every inter-onset interval (including skip-one) into 70–180 BPM
+    // and histogram them; the densest cluster is the tempo
+    const cands = [];
+    for (let i = 1; i < bpmOnsets.length; i++) {
+      for (const iv of [bpmOnsets[i] - bpmOnsets[i - 1], i > 1 ? bpmOnsets[i] - bpmOnsets[i - 2] : 0]) {
+        if (iv < 0.18 || iv > 4) continue;
+        let bpm = 60 / iv;
+        while (bpm < 70) bpm *= 2;
+        while (bpm > 180) bpm /= 2;
+        cands.push(bpm);
+      }
+    }
+    if (cands.length < 5) return;
+    let best = 0, bestScore = 0;
+    for (const c of cands) {
+      let score = 0, sum = 0;
+      for (const o of cands) if (Math.abs(o - c) < 3.5) { score++; sum += o; }
+      if (score > bestScore) { bestScore = score; best = sum / score; }
+    }
+    if (bestScore >= Math.max(4, cands.length * 0.35)) {
+      bpmVal = bpmVal ? bpmVal * 0.75 + best * 0.25 : best;   // smooth toward consensus
+      beatPeriod = 60 / bpmVal;
+      bpmConfident = true;
+    }
+  }
+
   function updateMeters(dt) {
     analyser.getByteTimeDomainData(meterTime.subarray(0, bufferLength));
     let peak = 0, sumSq = 0;
@@ -2643,6 +2714,7 @@
       for (let i = 2; i < bufferLength; i++) { if (freqData[i] > maxV) { maxV = freqData[i]; maxI = i; } }
       const nyquist = audioCtx ? audioCtx.sampleRate / 2 : 22050;
       statFreq.textContent = maxV > 12 ? fmtHz(maxI / bufferLength * nyquist) : '— Hz';
+      statBpm.textContent = bpmConfident ? Math.round(bpmVal) : '—';
     }
   }
 
@@ -2666,6 +2738,18 @@
       if (is3D && THREED.has(mode)) draw3D(s.w, s.h, dt);
       else (dispatch[mode] || drawBars)(s.w, s.h, dt);
       updateCamera(dt);
+      updateBPM(dt);
+      // subtle full-canvas edge glow on the beat, works in every mode
+      if (beatPulse > 0.03) {
+        ctx.save();
+        ctx.strokeStyle = `rgba(${CY[0]},${CY[1]},${CY[2]},${beatPulse * 0.35})`;
+        ctx.lineWidth = 5 + beatPulse * 9;
+        ctx.shadowColor = `rgba(${CY[0]},${CY[1]},${CY[2]},${beatPulse * 0.6})`;
+        ctx.shadowBlur = 26 * beatPulse;
+        ctx.strokeRect(2, 2, s.w - 4, s.h - 4);
+        ctx.restore();
+      }
+      beatDot.style.opacity = (0.15 + beatPulse * 0.85).toFixed(2);
       updateMeters(dt);
     }
     else drawIdle(s.w, s.h, dt);
